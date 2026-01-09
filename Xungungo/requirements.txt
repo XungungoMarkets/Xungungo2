@@ -1,0 +1,5 @@
+PySide6>=6.6
+PySide6-Addons>=6.6
+pandas>=2.1
+numpy>=1.24
+yfinance>=0.2
