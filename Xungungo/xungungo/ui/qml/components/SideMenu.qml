@@ -9,8 +9,8 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
+        anchors.margins: 12
         spacing: 8
-        padding: 12
 
         Label {
             text: "Xungungo"
