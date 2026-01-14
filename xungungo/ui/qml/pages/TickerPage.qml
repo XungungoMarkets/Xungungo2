@@ -57,6 +57,31 @@ Rectangle {
         }
     }
 
+    // Loading state
+    property bool isLoading: false
+
+    // Access to main window for global status bar
+    function getMainWindow() {
+        var item = root
+        while (item.parent) {
+            item = item.parent
+        }
+        return item
+    }
+
+    Connections {
+        target: tickerController
+        function onStatusChanged(msg) {
+            console.log("Status changed:", msg)
+            // Update global status bar
+            var mainWin = getMainWindow()
+            if (mainWin && mainWin.setStatusText) {
+                mainWin.setStatusText(msg)
+            }
+            isLoading = msg.includes("Loading") || msg.includes("Cargando")
+        }
+    }
+
     // Main content area
     ColumnLayout {
         anchors.fill: parent
@@ -83,30 +108,12 @@ Rectangle {
                     }
                 }
 
-                Button {
-                    text: "Load"
+                // Loader indicator
+                BusyIndicator {
                     Layout.preferredHeight: 36
-                    Layout.preferredWidth: 80
-                    onClicked: {
-                        console.log("Loading symbol:", tickerField.text)
-                        tickerController.loadSymbol(tickerField.text)
-                    }
-                }
-
-                Label {
-                    id: statusLabel
-                    text: ""
-                    color: "#8b92b0"
-                    Layout.preferredWidth: 200
-                    elide: Label.ElideRight
-                }
-
-                Connections {
-                    target: tickerController
-                    function onStatusChanged(msg) {
-                        console.log("Status changed:", msg)
-                        statusLabel.text = msg
-                    }
+                    Layout.preferredWidth: 36
+                    running: isLoading
+                    visible: isLoading
                 }
             }
         }
@@ -115,16 +122,78 @@ Rectangle {
         TabBar {
             id: tabBar
             Layout.fillWidth: true
+            Layout.preferredHeight: 44
+            spacing: 4
+
             background: Rectangle {
                 color: "#1a1d2e"
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    height: 1
+                    color: "#2d3345"
+                }
             }
 
             TabButton {
                 text: "Chart"
+                height: tabBar.height
+
+                background: Rectangle {
+                    color: {
+                        if (parent.checked) return "#0f111a"
+                        if (parent.hovered) return "#252838"
+                        return "transparent"
+                    }
+
+                    Rectangle {
+                        visible: parent.parent.checked
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 2
+                        color: "#26a69a"
+                    }
+                }
+
+                contentItem: Text {
+                    text: parent.text
+                    color: parent.checked ? "#e6e6e6" : "#8b92b0"
+                    font.pixelSize: 13
+                    font.bold: parent.checked
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
 
             TabButton {
                 text: "Analysis"
+                height: tabBar.height
+
+                background: Rectangle {
+                    color: {
+                        if (parent.checked) return "#0f111a"
+                        if (parent.hovered) return "#252838"
+                        return "transparent"
+                    }
+
+                    Rectangle {
+                        visible: parent.parent.checked
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 2
+                        color: "#26a69a"
+                    }
+                }
+
+                contentItem: Text {
+                    text: parent.text
+                    color: parent.checked ? "#e6e6e6" : "#8b92b0"
+                    font.pixelSize: 13
+                    font.bold: parent.checked
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
         }
 

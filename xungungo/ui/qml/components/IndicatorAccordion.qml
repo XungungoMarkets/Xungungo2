@@ -270,6 +270,7 @@ Rectangle {
         id: enumFieldComponent
 
         ComboBox {
+            id: enumCombo
             property var fieldSchema: null
             property string fieldPath: ""
             property var fieldValue: null
@@ -277,12 +278,86 @@ Rectangle {
             implicitHeight: 28
             model: fieldSchema && fieldSchema.enum ? fieldSchema.enum : []
             currentIndex: fieldSchema && fieldSchema.enum ? Math.max(0, fieldSchema.enum.indexOf(fieldValue)) : 0
+
             onActivated: {
                 if (!ready || !fieldSchema || !fieldSchema.enum) return
                 setConfigValue(fieldPath, fieldSchema.enum[currentIndex])
             }
+
             Component.onCompleted: {
                 ready = true
+            }
+
+            background: Rectangle {
+                color: "#1a1d2e"
+                border.color: enumCombo.activeFocus ? "#3d4461" : "#2d3345"
+                border.width: 1
+                radius: 4
+            }
+
+            contentItem: Text {
+                text: enumCombo.displayText
+                font.pixelSize: 11
+                color: "#e6e6e6"
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: 8
+                rightPadding: enumCombo.indicator ? (enumCombo.indicator.width + enumCombo.spacing) : 30
+            }
+
+            delegate: ItemDelegate {
+                width: enumCombo.width
+                height: 32
+                highlighted: enumCombo.highlightedIndex === index
+
+                background: Rectangle {
+                    color: highlighted ? "#3d4461" : "transparent"
+                }
+
+                contentItem: Text {
+                    text: modelData
+                    color: highlighted ? "#ffffff" : "#e6e6e6"
+                    font.pixelSize: 11
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 8
+                }
+            }
+
+            popup: Popup {
+                y: enumCombo.height
+                width: enumCombo.width
+                implicitHeight: Math.min(contentItem.implicitHeight, 300)
+                padding: 1
+
+                contentItem: ListView {
+                    clip: true
+                    implicitHeight: contentHeight
+                    model: enumCombo.popup.visible ? enumCombo.delegateModel : null
+                    currentIndex: enumCombo.highlightedIndex
+
+                    ScrollBar.vertical: ScrollBar {
+                        active: true
+                        policy: ScrollBar.AsNeeded
+
+                        background: Rectangle {
+                            implicitWidth: 8
+                            color: "#1a1d2e"
+                            radius: 4
+                        }
+
+                        contentItem: Rectangle {
+                            implicitWidth: 6
+                            radius: 3
+                            color: parent.pressed ? "#5d6481" : "#3d4461"
+                        }
+                    }
+                }
+
+                background: Rectangle {
+                    color: "#1a1d2e"
+                    border.color: "#3d4461"
+                    border.width: 1
+                    radius: 4
+                }
             }
         }
     }

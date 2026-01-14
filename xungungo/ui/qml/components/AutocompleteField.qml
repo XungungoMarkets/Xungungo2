@@ -16,7 +16,16 @@ Item {
     TextField {
         id: textField
         anchors.fill: parent
-        
+        font.pixelSize: 12
+        color: "#e6e6e6"
+
+        background: Rectangle {
+            color: "#1a1d2e"
+            border.color: textField.activeFocus ? "#3d4461" : "#2d3345"
+            border.width: 1
+            radius: 4
+        }
+
         onTextChanged: {
             if (text.length > 0) {
                 searchController.search(text)
@@ -25,7 +34,7 @@ Item {
                 popup.close()
             }
         }
-        
+
         onAccepted: {
             if (popup.visible && listView.currentIndex >= 0) {
                 var item = resultsModel.get(listView.currentIndex)
@@ -34,21 +43,21 @@ Item {
                 root.symbolSelected(text)
             }
         }
-        
+
         Keys.onDownPressed: {
             if (popup.visible && listView.count > 0) {
                 listView.currentIndex = Math.min(listView.currentIndex + 1, listView.count - 1)
                 listView.positionViewAtIndex(listView.currentIndex, ListView.Contain)
             }
         }
-        
+
         Keys.onUpPressed: {
             if (popup.visible && listView.count > 0) {
                 listView.currentIndex = Math.max(listView.currentIndex - 1, 0)
                 listView.positionViewAtIndex(listView.currentIndex, ListView.Contain)
             }
         }
-        
+
         Keys.onEscapePressed: {
             popup.close()
         }
@@ -56,15 +65,15 @@ Item {
     
     Popup {
         id: popup
-        y: textField.height
+        y: textField.height + 2
         width: textField.width
         height: Math.min(listView.contentHeight, 300)
-        
-        padding: 0
-        
+
+        padding: 1
+
         background: Rectangle {
             color: "#1a1d2e"
-            border.color: "#2d3345"
+            border.color: "#3d4461"
             border.width: 1
             radius: 4
         }
@@ -80,55 +89,70 @@ Item {
             
             delegate: ItemDelegate {
                 width: listView.width
-                height: 50
-                
+                height: 54
+                highlighted: listView.currentIndex === index
+
                 background: Rectangle {
-                    color: listView.currentIndex === index ? "#2d3345" : 
-                           hovered ? "#252838" : "transparent"
+                    color: highlighted ? "#3d4461" : (hovered ? "#252838" : "transparent")
+                    radius: 3
                 }
-                
+
                 contentItem: ColumnLayout {
-                    spacing: 2
-                    
+                    spacing: 3
+                    anchors.margins: 8
+
                     RowLayout {
                         spacing: 8
-                        
+
                         Label {
                             text: model.symbol
                             font.bold: true
-                            font.pixelSize: 13
+                            font.pixelSize: 12
                             color: "#e6e6e6"
                         }
-                        
+
                         Label {
                             text: model.exch
-                            font.pixelSize: 11
-                            color: "#888888"
+                            font.pixelSize: 10
+                            color: "#8b92b0"
                         }
-                        
+
                         Label {
                             text: model.typeDisp
-                            font.pixelSize: 11
-                            color: "#666666"
+                            font.pixelSize: 10
+                            color: "#5d6481"
                         }
                     }
-                    
+
                     Label {
                         text: model.longname
-                        font.pixelSize: 11
-                        color: "#aaaaaa"
+                        font.pixelSize: 10
+                        color: "#8b92b0"
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
                 }
-                
+
                 onClicked: {
                     selectSymbol(model.symbol)
                 }
             }
             
             ScrollBar.vertical: ScrollBar {
+                active: true
                 policy: ScrollBar.AsNeeded
+
+                background: Rectangle {
+                    implicitWidth: 8
+                    color: "#1a1d2e"
+                    radius: 4
+                }
+
+                contentItem: Rectangle {
+                    implicitWidth: 6
+                    radius: 3
+                    color: parent.pressed ? "#5d6481" : "#3d4461"
+                }
             }
         }
     }
