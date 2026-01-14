@@ -12,16 +12,18 @@ ApplicationWindow {
     height: 800
     title: "Xungungo"
 
-    RowLayout {
+    // Estructura simple sin sidebar, pero preparada para futuros menús
+    StackLayout {
         anchors.fill: parent
-        SideMenu {
-            Layout.preferredWidth: 220
-            Layout.fillHeight: true
-        }
-
+        currentIndex: 0
+        
+        // Página principal (por ahora solo Ticker)
         TickerPage {
             Layout.fillWidth: true
             Layout.fillHeight: true
         }
+        
+        // Reservado para futuras páginas
+        // AnotherPage { }
     }
 }

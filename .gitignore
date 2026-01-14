@@ -22,3 +22,4 @@ pip-wheel-metadata/
 *.dll
 *.dylib
 *.exe
+tmpclaude-*
