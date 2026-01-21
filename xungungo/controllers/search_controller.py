@@ -3,6 +3,7 @@ import json
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from typing import TYPE_CHECKING
 
+from xungungo.core.logger import get_logger
 if TYPE_CHECKING:
     from xungungo.data.yahoo_search import YahooSearchClient
 
@@ -14,6 +15,7 @@ class SearchController(QObject):
     
     def __init__(self, search_client: YahooSearchClient, parent=None):
         super().__init__(parent)
+        self.log = get_logger("xungungo.search")
         self.search_client = search_client
         self._search_timer = QTimer()
         self._search_timer.setSingleShot(True)
@@ -57,5 +59,5 @@ class SearchController(QObject):
             
             self.resultsChanged.emit(json.dumps(results_json))
         except Exception as e:
-            print(f"Search error: {e}")
+            self.log.error("Search error: %s", e, exc_info=True)
             self.resultsChanged.emit("[]")

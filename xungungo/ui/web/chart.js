@@ -4,6 +4,15 @@
 //  - qwebchannel.js
 //  - advanced_renderer.js (sistema genérico)
 
+const DEBUG = typeof window !== "undefined" && window.XUNGUNGO_DEBUG === true;
+const log = (...args) => {
+  if (DEBUG) console["log"](...args);
+};
+const warn = (...args) => {
+  if (DEBUG) console["warn"](...args);
+};
+const QWEBCHANNEL_INIT_DELAY_MS = 100;
+
 // Chart Manager Module - Encapsulates all chart state and functionality
 const ChartManager = (function() {
   'use strict';
@@ -16,12 +25,9 @@ const ChartManager = (function() {
   let advancedRenderer = null;
   let currentSeriesDefs = [];
 
-  // Constants
-  const QWEBCHANNEL_INIT_DELAY_MS = 100;
-
   // Private utility functions
   function showOverlay(msg) {
-    console.log("OVERLAY:", msg);
+    log("OVERLAY:", msg);
     const o = document.getElementById("overlay");
     if (!o) {
       console.error("Overlay element not found!");
@@ -37,8 +43,8 @@ const ChartManager = (function() {
   }
 
   function initChart() {
-    console.log("=== INITIALIZING CHART ===");
-    console.log("LightweightCharts available:", typeof LightweightCharts !== "undefined");
+    log("=== INITIALIZING CHART ===");
+    log("LightweightCharts available:", typeof LightweightCharts !== "undefined");
 
     if (typeof LightweightCharts === "undefined") {
       showOverlay(
@@ -48,7 +54,7 @@ const ChartManager = (function() {
       return false;
     }
 
-    console.log("LightweightCharts.createChart:", typeof LightweightCharts.createChart);
+    log("LightweightCharts.createChart:", typeof LightweightCharts.createChart);
 
     if (typeof LightweightCharts.createChart !== "function") {
       showOverlay("LightweightCharts API no disponible.");
@@ -81,9 +87,9 @@ const ChartManager = (function() {
       // Inicializar sistema de renderizado avanzado
       if (typeof window.AdvancedRenderer === "function") {
         advancedRenderer = new window.AdvancedRenderer();
-        console.log("AdvancedRenderer initialized");
+        log("AdvancedRenderer initialized");
       } else {
-        console.warn("AdvancedRenderer no disponible. ¿Cargaste advanced_renderer.js?");
+        warn("AdvancedRenderer no disponible. ¿Cargaste advanced_renderer.js?");
       }
 
       window.addEventListener("resize", () => {
@@ -92,7 +98,7 @@ const ChartManager = (function() {
         }
       });
 
-      console.log("Chart initialized successfully!");
+      log("Chart initialized successfully!");
       hideOverlay();
       return true;
     } catch (err) {
@@ -108,16 +114,30 @@ const ChartManager = (function() {
     return colors[hash % colors.length];
   }
 
-  function ensureLineSeries(id) {
-    if (lineSeries.has(id)) return lineSeries.get(id);
+  function ensureLineSeries(id, options) {
+    if (lineSeries.has(id)) {
+      // If series exists and options provided, update options
+      if (options) {
+        const s = lineSeries.get(id);
+        try {
+          s.applyOptions(options);
+        } catch (err) {
+          warn(`Error applying options to series ${id}:`, err);
+        }
+      }
+      return lineSeries.get(id);
+    }
 
     try {
-      const s = chart.addSeries(LightweightCharts.LineSeries, {
+      const defaultOpts = {
         lineWidth: 2,
         color: getColorForSeries(id),
-      });
+      };
+      const mergedOpts = options ? { ...defaultOpts, ...options } : defaultOpts;
+
+      const s = chart.addSeries(LightweightCharts.LineSeries, mergedOpts);
       lineSeries.set(id, s);
-      console.log("Created line series:", id);
+      log("Created line series:", id, "with options:", mergedOpts);
       return s;
     } catch (err) {
       console.error("Error creating line series:", err);
@@ -127,14 +147,14 @@ const ChartManager = (function() {
 
   function ensureMarkerPlugin(seriesId) {
     if (markerPlugins.has(seriesId)) {
-      console.log(`MarkerPlugin: Reusing existing plugin for ${seriesId}`);
+      log(`MarkerPlugin: Reusing existing plugin for ${seriesId}`);
       return markerPlugins.get(seriesId);
     }
 
-    console.log(`MarkerPlugin: Attempting to create plugin for ${seriesId}`);
-    console.log("  LightweightCharts.createSeriesMarkers:", typeof LightweightCharts.createSeriesMarkers);
-    console.log("  window.createSeriesMarkers:", typeof window.createSeriesMarkers);
-    console.log("  window.SeriesMarkers:", typeof window.SeriesMarkers);
+    log(`MarkerPlugin: Attempting to create plugin for ${seriesId}`);
+    log("  LightweightCharts.createSeriesMarkers:", typeof LightweightCharts.createSeriesMarkers);
+    log("  window.createSeriesMarkers:", typeof window.createSeriesMarkers);
+    log("  window.SeriesMarkers:", typeof window.SeriesMarkers);
 
     const createSeriesMarkers = (
       typeof LightweightCharts.createSeriesMarkers === "function"
@@ -153,7 +173,7 @@ const ChartManager = (function() {
       return null;
     }
 
-    console.log("  createSeriesMarkers function found:", typeof createSeriesMarkers);
+    log("  createSeriesMarkers function found:", typeof createSeriesMarkers);
 
     const series = seriesId === "candles" ? candleSeries : ensureLineSeries(seriesId);
     if (!series) {
@@ -164,7 +184,7 @@ const ChartManager = (function() {
     try {
       const plugin = createSeriesMarkers(series, []);
       markerPlugins.set(seriesId, plugin);
-      console.log(`MarkerPlugin: Successfully created plugin for ${seriesId}`);
+      log(`MarkerPlugin: Successfully created plugin for ${seriesId}`);
       return plugin;
     } catch (err) {
       console.error(`MarkerPlugin: Error creating plugin for ${seriesId}:`, err);
@@ -174,12 +194,12 @@ const ChartManager = (function() {
 
   function setCandles(data) {
     if (!candleSeries) {
-      console.warn("Candle series not initialized");
+      warn("Candle series not initialized");
       return;
     }
 
     try {
-      console.log("Setting", data.length, "candles");
+      log("Setting", data.length, "candles");
       candleSeries.setData(data);
     } catch (err) {
       console.error("Error setting candles:", err);
@@ -188,7 +208,7 @@ const ChartManager = (function() {
 
   function setIndicators(indicators, seriesDefs) {
     if (!chart) {
-      console.warn("Chart not initialized");
+      warn("Chart not initialized");
       return;
     }
 
@@ -211,13 +231,17 @@ const ChartManager = (function() {
           // band creates a host series
           const hostSeriesId = `${def.id}_host`;
           expectedSeriesIds.add(hostSeriesId);
+        } else if (def.type === "horizontal_lines") {
+          // horizontal_lines creates a host series
+          const hostSeriesId = `${def.id}_host`;
+          expectedSeriesIds.add(hostSeriesId);
         }
       }
 
       // Remove series that are no longer in the definitions
       for (const [id, s] of lineSeries.entries()) {
         if (!expectedSeriesIds.has(id)) {
-          console.log("Removing series:", id);
+          log("Removing series:", id);
           if (markerPlugins.has(id)) {
             markerPlugins.delete(id);
           }
@@ -228,7 +252,7 @@ const ChartManager = (function() {
 
       // Clean up primitives when indicators are cleared or changed
       if (advancedRenderer && (!indicators || Object.keys(indicators).length === 0)) {
-        console.log("Clearing all primitives");
+        log("Clearing all primitives");
         advancedRenderer.clear();
       }
 
@@ -239,25 +263,34 @@ const ChartManager = (function() {
         (def) => def.type === "line" && def.column
       );
 
-      console.log(`Found ${basicSeries.length} basic line series to render`);
+      log(`Found ${basicSeries.length} basic line series to render`);
 
       for (const def of basicSeries) {
         const id = def.id;
         const data = indicators[def.column];
 
         if (!data) {
-          console.warn(`No data for column ${def.column}`);
+          warn(`No data for column ${def.column}`);
           continue;
         }
 
-        const s = ensureLineSeries(id);
+        // Build series options from definition
+        const seriesOpts = {};
+        if (def.color) seriesOpts.color = def.color;
+        if (def.lineWidth) seriesOpts.lineWidth = def.lineWidth;
+        if (def.lineStyle) seriesOpts.lineStyle = def.lineStyle;
+        if (def.lineType) seriesOpts.lineType = def.lineType;
+        if (def.lastValueVisible !== undefined) seriesOpts.lastValueVisible = def.lastValueVisible;
+        if (def.priceLineVisible !== undefined) seriesOpts.priceLineVisible = def.priceLineVisible;
+
+        const s = ensureLineSeries(id, Object.keys(seriesOpts).length > 0 ? seriesOpts : null);
         if (s) {
-          console.log(`Setting ${data.length} points for series ${id}`);
+          log(`Setting ${data.length} points for series ${id}`);
           s.setData(data);
         }
       }
 
-      // 1b) Apply markers
+      // 1b) Apply markers - Group all markers by series before setting
       const markerDefs = currentSeriesDefs.filter(
         (def) => def.type === "markers" && def.series && def.column
       );
@@ -269,21 +302,16 @@ const ChartManager = (function() {
         }
       }
 
-      for (const def of markerDefs) {
-        console.log(`Processing marker definition:`, def);
+      // Group markers by series to avoid overwriting
+      const markersBySeries = new Map();
 
-        const markerPlugin = ensureMarkerPlugin(def.series);
-        if (!markerPlugin) {
-          console.warn(`Skipping markers for ${def.id}: plugin not available`);
-          continue;
-        }
+      for (const def of markerDefs) {
+        log(`Processing marker definition:`, def);
 
         const data = indicators[def.column] || [];
-        console.log(`Marker data for ${def.id}: ${data.length} points from column ${def.column}`);
+        log(`Marker data for ${def.id}: ${data.length} points from column ${def.column}`);
 
         if (data.length === 0) {
-          console.warn(`No data for marker column ${def.column}`);
-          markerPlugin.setMarkers([]);
           continue;
         }
 
@@ -293,6 +321,7 @@ const ChartManager = (function() {
         const shapeDown = def.shapeDown || "arrowDown";
         const textUp = def.textUp || "UP";
         const textDown = def.textDown || "DOWN";
+        const markerSize = def.size || 1;
 
         const markers = data.map((p) => {
           const isUp = p.value >= 0;
@@ -302,29 +331,47 @@ const ChartManager = (function() {
             color: isUp ? upColor : downColor,
             shape: isUp ? shapeUp : shapeDown,
             text: isUp ? textUp : textDown,
+            size: markerSize,
           };
         });
 
-        console.log(`Setting ${markers.length} markers on series ${def.series}`);
-        console.log(`First marker:`, markers[0]);
+        // Accumulate markers for this series
+        if (!markersBySeries.has(def.series)) {
+          markersBySeries.set(def.series, []);
+        }
+        markersBySeries.get(def.series).push(...markers);
+      }
+
+      // Now set all markers for each series at once
+      for (const [seriesId, allMarkers] of markersBySeries.entries()) {
+        const markerPlugin = ensureMarkerPlugin(seriesId);
+        if (!markerPlugin) {
+          warn(`Skipping markers for series ${seriesId}: plugin not available`);
+          continue;
+        }
+
+        // Sort markers by time to ensure proper ordering
+        allMarkers.sort((a, b) => a.time - b.time);
+
+        log(`Setting ${allMarkers.length} total markers on series ${seriesId}`);
 
         try {
-          markerPlugin.setMarkers(markers);
-          console.log(`Successfully set markers for ${def.id}`);
+          markerPlugin.setMarkers(allMarkers);
+          log(`Successfully set markers for series ${seriesId}`);
         } catch (err) {
-          console.error(`Error setting markers for ${def.id}:`, err);
+          console.error(`Error setting markers for series ${seriesId}:`, err);
         }
       }
 
-      // 2) Aplicar renderizado avanzado (fill_between, band, etc.)
+      // 2) Aplicar renderizado avanzado (fill_between, band, horizontal_lines, etc.)
       if (advancedRenderer) {
         const advancedDefs = currentSeriesDefs.filter(
-          (def) => def.type === "fill_between" || def.type === "band"
+          (def) => def.type === "fill_between" || def.type === "band" || def.type === "horizontal_lines"
         );
 
-        console.log(`Found ${advancedDefs.length} advanced series to render`);
-        console.log("Advanced defs:", JSON.stringify(advancedDefs, null, 2));
-        console.log("Available indicators:", Object.keys(indicators));
+        log(`Found ${advancedDefs.length} advanced series to render`);
+        log("Advanced defs:", JSON.stringify(advancedDefs, null, 2));
+        log("Available indicators:", Object.keys(indicators));
 
         // Get current primitive IDs
         const currentPrimitiveIds = new Set(advancedDefs.map(def => def.id));
@@ -351,9 +398,9 @@ const ChartManager = (function() {
 })();
 
 document.addEventListener("DOMContentLoaded", () => {
-  console.log("=== DOM LOADED ===");
-  console.log("QWebChannel available:", typeof QWebChannel !== "undefined");
-  console.log("qt available:", typeof qt !== "undefined");
+  log("=== DOM LOADED ===");
+  log("QWebChannel available:", typeof QWebChannel !== "undefined");
+  log("qt available:", typeof qt !== "undefined");
 
   const ok = ChartManager.init();
 
@@ -367,33 +414,33 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
 
-  console.log("=== INITIALIZING QWEBCHANNEL ===");
+  log("=== INITIALIZING QWEBCHANNEL ===");
 
   // Use constant from ChartManager module
   setTimeout(function () {
-    console.log("Attempting QWebChannel initialization...");
+    log("Attempting QWebChannel initialization...");
 
     new QWebChannel(qt.webChannelTransport, function (channel) {
-      console.log("QWebChannel callback invoked");
-      console.log("Channel:", channel);
-      console.log("Channel.objects:", channel.objects);
+      log("QWebChannel callback invoked");
+      log("Channel:", channel);
+      log("Channel.objects:", channel.objects);
 
       const objectKeys = Object.keys(channel.objects);
-      console.log("Object.keys():", objectKeys);
-      console.log("Object.keys() length:", objectKeys.length);
+      log("Object.keys():", objectKeys);
+      log("Object.keys() length:", objectKeys.length);
 
-      console.log("Trying direct access to chartBridge...");
-      console.log("channel.objects.chartBridge:", channel.objects.chartBridge);
-      console.log("channel.objects['chartBridge']:", channel.objects["chartBridge"]);
+      log("Trying direct access to chartBridge...");
+      log("channel.objects.chartBridge:", channel.objects.chartBridge);
+      log("channel.objects['chartBridge']:", channel.objects["chartBridge"]);
 
       const bridge = channel.objects.chartBridge;
-      console.log("bridge assigned:", bridge);
+      log("bridge assigned:", bridge);
 
       if (!bridge) {
         const availableKeys = [];
         for (const key in channel.objects) {
           availableKeys.push(key);
-          console.log("  - Property:", key, "=", channel.objects[key]);
+          log("  - Property:", key, "=", channel.objects[key]);
         }
         ChartManager.showOverlay(
           "chartBridge no está registrado.\nObjetos disponibles: " +
@@ -402,30 +449,30 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      console.log("chartBridge found! Type:", typeof bridge);
-      console.log("bridge properties:", Object.keys(bridge));
+      log("chartBridge found! Type:", typeof bridge);
+      log("bridge properties:", Object.keys(bridge));
 
       if (typeof bridge.ready === "function") {
-        console.log("Calling bridge.ready()...");
+        log("Calling bridge.ready()...");
         try {
           bridge.ready();
-          console.log("bridge.ready() called successfully");
+          log("bridge.ready() called successfully");
         } catch (err) {
           console.error("Error calling bridge.ready():", err);
         }
       } else {
-        console.warn("bridge.ready is not a function, type:", typeof bridge.ready);
+        warn("bridge.ready is not a function, type:", typeof bridge.ready);
       }
 
       if (bridge.push) {
-        console.log("bridge.push exists, type:", typeof bridge.push);
+        log("bridge.push exists, type:", typeof bridge.push);
         if (typeof bridge.push.connect === "function") {
           bridge.push.connect(function (payload) {
-            console.log("=== RECEIVED PUSH ===");
-            console.log("Payload length:", payload.length);
+            log("=== RECEIVED PUSH ===");
+            log("Payload length:", payload.length);
 
             if (!ok) {
-              console.warn("Chart not initialized, ignoring");
+              warn("Chart not initialized, ignoring");
               return;
             }
 
@@ -443,13 +490,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
               }
 
-              console.log("Message type:", msg.type);
-              console.log("Candles:", msg.candles ? msg.candles.length : 0);
-              console.log(
+              log("Message type:", msg.type);
+              log("Candles:", msg.candles ? msg.candles.length : 0);
+              log(
                 "Indicators:",
                 msg.indicators ? Object.keys(msg.indicators) : []
               );
-              console.log(
+              log(
                 "Series defs:",
                 msg.seriesDefs ? msg.seriesDefs.length : 0
               );
@@ -484,13 +531,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 ChartManager.setIndicators(msg.indicators, msg.seriesDefs);
               } else {
-                console.warn("Unknown message type:", msg.type);
+                warn("Unknown message type:", msg.type);
               }
             } catch (err) {
               console.error("Error processing push:", err);
             }
           });
-          console.log("Connected to bridge.push signal");
+          log("Connected to bridge.push signal");
         } else {
           console.error("bridge.push.connect is not a function");
         }
@@ -498,5 +545,5 @@ document.addEventListener("DOMContentLoaded", () => {
         console.error("bridge.push does not exist");
       }
     });
-  }, 100);
+  }, QWEBCHANNEL_INIT_DELAY_MS);
 });

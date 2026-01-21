@@ -20,9 +20,52 @@ class YFinanceDataSource(DataSource):
     MAX_RETRIES = 3
     RETRY_DELAY = 1.0  # Initial delay in seconds
 
+    # Max supported period per interval (based on yfinance/Yahoo limits)
+    _MAX_PERIOD_BY_INTERVAL = {
+        "1m": "5d",
+        "5m": "1mo",
+        "15m": "1mo",
+        "30m": "1mo",
+        "1h": "2y",
+        "1d": "10y",
+        "1wk": "10y",
+    }
+
+    _PERIOD_ORDER = [
+        "1d",
+        "5d",
+        "1mo",
+        "3mo",
+        "6mo",
+        "1y",
+        "2y",
+        "5y",
+        "10y",
+        "ytd",
+        "max",
+    ]
+
     def __init__(self):
         self.log = get_logger("xungungo.yfinance")
         self._cache = {}  # Format: {cache_key: (dataframe, timestamp)}
+
+    def normalize_interval_period(self, interval: str, period: str) -> tuple[str, str]:
+        interval = (interval or "").strip()
+        period = (period or "").strip()
+        max_period = self._MAX_PERIOD_BY_INTERVAL.get(interval)
+        if not max_period:
+            return interval, period
+        try:
+            max_idx = self._PERIOD_ORDER.index(max_period)
+            period_idx = self._PERIOD_ORDER.index(period)
+        except ValueError:
+            return interval, period
+        if period_idx > max_idx:
+            self.log.info(
+                f"Clamping period '{period}' to '{max_period}' for interval '{interval}'"
+            )
+            return interval, max_period
+        return interval, period
 
     def fetch_ohlcv(self, symbol: str, interval: str = "1d", period: str = "10y") -> pd.DataFrame:
         """
@@ -39,6 +82,7 @@ class YFinanceDataSource(DataSource):
         Raises:
             ValueError: If no data is available after retries
         """
+        interval, period = self.normalize_interval_period(interval, period)
         cache_key = f"{symbol}:{interval}:{period}"
 
         # Check cache

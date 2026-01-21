@@ -5,6 +5,14 @@
 (function (global) {
   "use strict";
 
+  const DEBUG = global.XUNGUNGO_DEBUG === true;
+  const log = (...args) => {
+    if (DEBUG) console["log"](...args);
+  };
+  const warn = (...args) => {
+    if (DEBUG) console["warn"](...args);
+  };
+
   // ========================================
   // FillBetween Renderer
   // ========================================
@@ -191,12 +199,12 @@
       const state = this._getState();
 
       if (!state.enabled) {
-        console.warn("BandRenderer: not enabled");
+        warn("BandRenderer: not enabled");
         return;
       }
 
       if (!state.upperData || !state.lowerData) {
-        console.warn("BandRenderer: missing data", {
+        warn("BandRenderer: missing data", {
           upper: !!state.upperData,
           lower: !!state.lowerData
         });
@@ -207,11 +215,11 @@
       const lower = state.lowerData;
 
       if (upper.length < 2 || lower.length < 2) {
-        console.warn(`BandRenderer: insufficient data - upper=${upper.length}, lower=${lower.length}`);
+        warn(`BandRenderer: insufficient data - upper=${upper.length}, lower=${lower.length}`);
         return;
       }
 
-      console.log(`BandRenderer: Drawing band with ${upper.length} points`);
+      log(`BandRenderer: Drawing band with ${upper.length} points`);
 
       target.useMediaCoordinateSpace((scope) => {
         const ctx = scope.context;
@@ -220,7 +228,7 @@
         const referenceSeries = state.referenceSeries;
 
         if (!chart || !series) {
-          console.warn("BandRenderer: missing chart or series");
+          warn("BandRenderer: missing chart or series");
           return;
         }
 
@@ -250,11 +258,11 @@
         }
 
         if (points.length < 2) {
-          console.warn("BandRenderer: insufficient valid points after coordinate conversion");
+          warn("BandRenderer: insufficient valid points after coordinate conversion");
           return;
         }
 
-        console.log(`BandRenderer: Drawing with ${points.length} valid points, first point:`, points[0]);
+        log(`BandRenderer: Drawing with ${points.length} valid points, first point:`, points[0]);
 
         ctx.save();
         ctx.fillStyle = fillColor;
@@ -277,7 +285,7 @@
         ctx.fill();
         ctx.restore();
 
-        console.log("BandRenderer: Fill completed");
+        log("BandRenderer: Fill completed");
       });
     }
 
@@ -363,6 +371,129 @@
   }
 
   // ========================================
+  // Horizontal Lines Renderer (for TDST levels)
+  // ========================================
+  class HorizontalLinesRenderer {
+    constructor(getState) {
+      this._getState = getState;
+    }
+
+    drawBackground(target) {
+      const state = this._getState();
+      if (!state.enabled || !state.segments || state.segments.length === 0) return;
+
+      target.useMediaCoordinateSpace((scope) => {
+        const ctx = scope.context;
+        const chart = state.chart;
+        const referenceSeries = state.referenceSeries;
+
+        if (!chart || !referenceSeries) return;
+
+        const timeScale = chart.timeScale();
+        const color = state.color || "rgba(255,255,255,0.8)";
+        const lineWidth = state.lineWidth || 2;
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+
+        for (const seg of state.segments) {
+          const x1 = timeScale.timeToCoordinate(seg.startTime);
+          const x2 = timeScale.timeToCoordinate(seg.endTime);
+          const y = referenceSeries.priceToCoordinate(seg.value);
+
+          if (x1 == null || x2 == null || y == null) continue;
+
+          ctx.beginPath();
+          ctx.moveTo(x1, y);
+          ctx.lineTo(x2, y);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      });
+    }
+
+    draw() {}
+  }
+
+  class HorizontalLinesPaneView {
+    constructor(getState) {
+      this._renderer = new HorizontalLinesRenderer(getState);
+    }
+    renderer() {
+      return this._renderer;
+    }
+    zOrder() {
+      return undefined;
+    }
+  }
+
+  class HorizontalLinesPrimitive {
+    constructor(options) {
+      this._opts = options || {};
+      this._enabled = true;
+      this._chart = null;
+      this._series = null;
+      this._referenceSeries = null;
+      this._requestUpdate = null;
+      this._segments = [];
+      this._paneView = new HorizontalLinesPaneView(() => this._state());
+    }
+
+    attached(params) {
+      this._chart = params.chart;
+      this._series = params.series;
+      this._requestUpdate = params.requestUpdate;
+    }
+
+    detached() {
+      this._chart = null;
+      this._series = null;
+      this._requestUpdate = null;
+    }
+
+    paneViews() {
+      return [this._paneView];
+    }
+
+    updateAllViews() {}
+
+    setEnabled(enabled) {
+      this._enabled = !!enabled;
+      this._safeRequestUpdate();
+    }
+
+    setReferenceSeries(referenceSeries) {
+      this._referenceSeries = referenceSeries;
+      this._safeRequestUpdate();
+    }
+
+    setSegments(segments) {
+      this._segments = segments || [];
+      this._safeRequestUpdate();
+    }
+
+    _safeRequestUpdate() {
+      if (typeof this._requestUpdate === "function") {
+        this._requestUpdate();
+      }
+    }
+
+    _state() {
+      return {
+        enabled: this._enabled,
+        chart: this._chart,
+        series: this._series,
+        referenceSeries: this._referenceSeries,
+        segments: this._segments,
+        color: this._opts.color || "rgba(255,255,255,0.8)",
+        lineWidth: this._opts.lineWidth || 2,
+      };
+    }
+  }
+
+  // ========================================
   // Advanced Renderer Manager
   // ========================================
   class AdvancedRenderer {
@@ -384,9 +515,109 @@
           this._applyFillBetween(chart, ensureLineSeriesFn, def, indicators);
         } else if (type === "band") {
           this._applyBand(chart, ensureLineSeriesFn, def, indicators, candleSeries);
+        } else if (type === "horizontal_lines") {
+          this._applyHorizontalLines(chart, ensureLineSeriesFn, def, indicators, candleSeries);
         }
         // Add more types here as needed
       }
+    }
+
+    _applyHorizontalLines(chart, ensureLineSeriesFn, def, indicators, candleSeries) {
+      const id = def.id;
+      const column = def.column;
+
+      const data = indicators[column];
+      if (!data || data.length === 0) {
+        warn(`HorizontalLines ${id}: No data for column ${column}`);
+        return;
+      }
+
+      // Convert data points into horizontal segments
+      // Each segment is a continuous run of the same value
+      const segments = [];
+      let currentValue = null;
+      let startTime = null;
+
+      for (let i = 0; i < data.length; i++) {
+        const point = data[i];
+
+        if (currentValue === null) {
+          // Start new segment
+          currentValue = point.value;
+          startTime = point.time;
+        } else if (point.value !== currentValue) {
+          // End current segment and start new one
+          segments.push({
+            value: currentValue,
+            startTime: startTime,
+            endTime: data[i - 1].time,
+          });
+          currentValue = point.value;
+          startTime = point.time;
+        }
+      }
+
+      // Close last segment
+      if (currentValue !== null && startTime !== null) {
+        segments.push({
+          value: currentValue,
+          startTime: startTime,
+          endTime: data[data.length - 1].time,
+        });
+      }
+
+      log(`HorizontalLines ${id}: Created ${segments.length} segments from ${data.length} points`);
+
+      // Create a dummy host series
+      const hostSeriesId = `${id}_host`;
+      const hostSeries = ensureLineSeriesFn(hostSeriesId);
+
+      if (!hostSeries) return;
+
+      // Make host series invisible
+      hostSeries.applyOptions({
+        lineWidth: 0,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        visible: false,
+      });
+
+      // Set minimal data on host series
+      hostSeries.setData(data.slice(0, 1));
+
+      // Get or create primitive
+      let primitive = this._primitives.get(id);
+
+      const needsRecreate = primitive && (
+        primitive._series !== hostSeries ||
+        !primitive._series
+      );
+
+      if (needsRecreate) {
+        log(`AdvancedRenderer: Recreating HorizontalLines primitive ${id} (series changed)`);
+        this.remove(id);
+        primitive = null;
+      }
+
+      if (!primitive) {
+        primitive = new HorizontalLinesPrimitive({
+          color: def.color || "rgba(255,255,255,0.8)",
+          lineWidth: def.lineWidth || 2,
+        });
+
+        if (typeof hostSeries.attachPrimitive === "function") {
+          hostSeries.attachPrimitive(primitive);
+          this._primitives.set(id, primitive);
+          log(`AdvancedRenderer: HorizontalLines primitive attached (${id})`);
+        } else {
+          warn(`AdvancedRenderer: attachPrimitive not available`);
+          return;
+        }
+      }
+
+      primitive.setEnabled(true);
+      primitive.setReferenceSeries(candleSeries);
+      primitive.setSegments(segments);
     }
 
     _applyFillBetween(chart, ensureLineSeriesFn, def, indicators) {
@@ -399,18 +630,18 @@
       const data2 = indicators[series2Id];
 
       if (!data1 || !data2) {
-        console.warn(`FillBetween ${id}: Missing data for ${series1Id} or ${series2Id}`);
+        warn(`FillBetween ${id}: Missing data for ${series1Id} or ${series2Id}`);
         return;
       }
 
-      console.log(`FillBetween ${id}: Found data1=${data1.length} points, data2=${data2.length} points`);
+      log(`FillBetween ${id}: Found data1=${data1.length} points, data2=${data2.length} points`);
 
       // Ensure line series exist (using series IDs which match column names)
       const series1 = ensureLineSeriesFn(series1Id);
       const series2 = ensureLineSeriesFn(series2Id);
 
       if (!series1 || !series2) {
-        console.warn(`FillBetween ${id}: Missing series ${series1Id} or ${series2Id}`);
+        warn(`FillBetween ${id}: Missing series ${series1Id} or ${series2Id}`);
         return;
       }
 
@@ -425,7 +656,7 @@
       );
 
       if (needsRecreate) {
-        console.log(`AdvancedRenderer: Recreating primitive ${id} (series changed)`);
+        log(`AdvancedRenderer: Recreating primitive ${id} (series changed)`);
         this.remove(id);
         primitive = null;
       }
@@ -440,13 +671,13 @@
         if (typeof series1.attachPrimitive === "function") {
           series1.attachPrimitive(primitive);
           this._primitives.set(id, primitive);
-          console.log(`AdvancedRenderer: FillBetween primitive created and attached (${id})`);
+          log(`AdvancedRenderer: FillBetween primitive created and attached (${id})`);
         } else {
-          console.warn(`AdvancedRenderer: attachPrimitive not available`);
+          warn(`AdvancedRenderer: attachPrimitive not available`);
           return;
         }
       } else {
-        console.log(`AdvancedRenderer: Reusing existing primitive ${id}`);
+        log(`AdvancedRenderer: Reusing existing primitive ${id}`);
       }
 
       primitive.setEnabled(true);
@@ -459,17 +690,17 @@
       const upperCol = def.upperColumn;
       const lowerCol = def.lowerColumn;
 
-      console.log(`Band ${id}: Looking for columns ${upperCol} and ${lowerCol}`);
+      log(`Band ${id}: Looking for columns ${upperCol} and ${lowerCol}`);
 
       const upperData = indicators[upperCol];
       const lowerData = indicators[lowerCol];
 
       if (!upperData || !lowerData) {
-        console.warn(`Band ${id}: Missing data - upper=${!!upperData}, lower=${!!lowerData}`);
+        warn(`Band ${id}: Missing data - upper=${!!upperData}, lower=${!!lowerData}`);
         return;
       }
 
-      console.log(`Band ${id}: Found upper=${upperData.length} points, lower=${lowerData.length} points`);
+      log(`Band ${id}: Found upper=${upperData.length} points, lower=${lowerData.length} points`);
 
       // Create a dummy series to host the primitive (or use existing)
       const hostSeriesId = `${id}_host`;
@@ -495,7 +726,7 @@
         };
       }).filter(p => p !== null);
 
-      console.log(`Band ${id}: Setting ${hostData.length} points on host series`);
+      log(`Band ${id}: Setting ${hostData.length} points on host series`);
       hostSeries.setData(hostData);
 
       // Get or create primitive
@@ -509,9 +740,9 @@
         if (typeof hostSeries.attachPrimitive === "function") {
           hostSeries.attachPrimitive(primitive);
           this._primitives.set(id, primitive);
-          console.log(`AdvancedRenderer: Band primitive attached (${id})`);
+          log(`AdvancedRenderer: Band primitive attached (${id})`);
         } else {
-          console.warn(`AdvancedRenderer: attachPrimitive not available`);
+          warn(`AdvancedRenderer: attachPrimitive not available`);
           return;
         }
       }
@@ -522,9 +753,9 @@
       // CRITICAL FIX: Use candlestick series as reference for price coordinates
       if (candleSeries) {
         primitive.setReferenceSeries(candleSeries);
-        console.log(`Band ${id}: Set reference series to candlestick`);
+        log(`Band ${id}: Set reference series to candlestick`);
       } else {
-        console.warn(`Band ${id}: No candleSeries available, using host series`);
+        warn(`Band ${id}: No candleSeries available, using host series`);
       }
     }
 
@@ -540,7 +771,7 @@
         }
       }
       this._primitives.delete(id);
-      console.log(`AdvancedRenderer: Removed primitive ${id}`);
+      log(`AdvancedRenderer: Removed primitive ${id}`);
     }
 
     /**
@@ -559,7 +790,7 @@
       }
 
       if (toRemove.length > 0) {
-        console.log(`AdvancedRenderer: Removed ${toRemove.length} unused primitives:`, toRemove);
+        log(`AdvancedRenderer: Removed ${toRemove.length} unused primitives:`, toRemove);
       }
     }
 
@@ -567,7 +798,7 @@
      * Clear all primitives
      */
     clear() {
-      console.log(`AdvancedRenderer: Clearing all ${this._primitives.size} primitives`);
+      log(`AdvancedRenderer: Clearing all ${this._primitives.size} primitives`);
       for (const [id, primitive] of this._primitives.entries()) {
         if (primitive._series && typeof primitive._series.detachPrimitive === "function") {
           primitive._series.detachPrimitive(primitive);

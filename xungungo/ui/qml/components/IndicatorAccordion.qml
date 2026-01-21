@@ -56,18 +56,6 @@ Rectangle {
         return cur
     }
 
-    function buildPatch(path, value) {
-        var parts = path.split(".")
-        var out = {}
-        var cur = out
-        for (var i = 0; i < parts.length - 1; i++) {
-            cur[parts[i]] = {}
-            cur = cur[parts[i]]
-        }
-        cur[parts[parts.length - 1]] = value
-        return out
-    }
-
     function applyPatchLocal(path, value) {
         var parts = path.split(".")
         var cur = pendingConfig  // Use pending config
@@ -187,7 +175,9 @@ Rectangle {
                     return unsupportedFieldComponent
                 }
                 onLoaded: {
-                    console.log("Inner field Loader completed for:", fieldPath, "type:", fieldSchema ? fieldSchema.type : "NULL")
+                    if (appDebug) {
+                        console.log("Inner field Loader completed for:", fieldPath, "type:", fieldSchema ? fieldSchema.type : "NULL")
+                    }
                     if (!item) return
                     if ("fieldSchema" in item) {
                         item.fieldSchema = fieldSchema
@@ -229,8 +219,10 @@ Rectangle {
             }
 
             onClicked: {
-                console.log("  fieldPath:", fieldPath, "(length:", fieldPath ? fieldPath.length : "NULL", ")")
-                console.log("  fieldSchema:", fieldSchema ? "OK" : "NULL")
+                if (appDebug) {
+                    console.log("  fieldPath:", fieldPath, "(length:", fieldPath ? fieldPath.length : "NULL", ")")
+                    console.log("  fieldSchema:", fieldSchema ? "OK" : "NULL")
+                }
 
                 if (!ready) {
                     return
@@ -417,7 +409,9 @@ Rectangle {
             font.pixelSize: 11
             Component.onCompleted: {
                 ready = true
-                console.log("NumberField loaded:", fieldPath, "=", fieldValue, "schema:", fieldSchema ? "OK" : "NULL")
+                if (appDebug) {
+                    console.log("NumberField loaded:", fieldPath, "=", fieldValue, "schema:", fieldSchema ? "OK" : "NULL")
+                }
             }
         }
     }
@@ -551,7 +545,9 @@ Rectangle {
 
                             onLoaded: {
                                 if (item) {
-                                    console.log("  Setting fieldSchema:", myFieldSchema ? "OK" : "NULL")
+                                    if (appDebug) {
+                                        console.log("  Setting fieldSchema:", myFieldSchema ? "OK" : "NULL")
+                                    }
                                     item.fieldPath = myFieldPath
                                     item.fieldSchema = myFieldSchema
 

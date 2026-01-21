@@ -1,7 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
-import QtWebEngine 1.10
 import QtWebChannel 1.0
 
 import "../components"
@@ -17,7 +16,9 @@ Rectangle {
         WebChannel.id: "chartBridge"
 
         function ready() {
-            console.log("Bridge ready() called via proxy")
+            if (appDebug) {
+                console.log("Bridge ready() called via proxy")
+            }
             readyRequested()
         }
 
@@ -34,31 +35,41 @@ Rectangle {
     // Plugins model shared with tabs
     property var pluginsModel: []
 
+    function parsePluginsModel(pluginsJson, okLabel, errorLabel) {
+        try {
+            pluginsModel = JSON.parse(pluginsJson)
+            if (appDebug) {
+                console.log(okLabel, pluginsModel.length, "plugins")
+            }
+        } catch(e) {
+            console.error(errorLabel, e)
+        }
+    }
+
     // Listen to pluginsChanged signal to update model
     Connections {
         target: tickerController
         function onPluginsChanged(pluginsJson) {
-            try {
-                pluginsModel = JSON.parse(pluginsJson)
-                console.log("Plugins model updated:", pluginsModel.length, "plugins")
-            } catch(e) {
-                console.error("Failed to parse plugins from signal:", e)
-            }
+            parsePluginsModel(
+                pluginsJson,
+                "Plugins model updated:",
+                "Failed to parse plugins from signal:"
+            )
         }
     }
 
     // Initialize plugins model on component load
     Component.onCompleted: {
-        try {
-            pluginsModel = JSON.parse(tickerController.getPlugins())
-            console.log("Initial plugins loaded:", pluginsModel.length, "plugins")
-        } catch(e) {
-            console.error("Failed to load initial plugins:", e)
-        }
+        parsePluginsModel(
+            tickerController.getPlugins(),
+            "Initial plugins loaded:",
+            "Failed to load initial plugins:"
+        )
     }
 
     // Loading state
     property bool isLoading: false
+    property string currentSymbol: ""
 
     // Access to main window for global status bar
     function getMainWindow() {
@@ -72,7 +83,9 @@ Rectangle {
     Connections {
         target: tickerController
         function onStatusChanged(msg) {
-            console.log("Status changed:", msg)
+            if (appDebug) {
+                console.log("Status changed:", msg)
+            }
             // Update global status bar
             var mainWin = getMainWindow()
             if (mainWin && mainWin.setStatusText) {
@@ -99,11 +112,11 @@ Rectangle {
                 spacing: 12
 
                 AutocompleteField {
-                    id: tickerField
                     Layout.fillWidth: true
                     Layout.preferredHeight: 36
                     placeholderText: "BTC-USD, AAPL, SPY..."
                     onSymbolSelected: function(symbol) {
+                        root.currentSymbol = symbol
                         tickerController.loadSymbol(symbol)
                     }
                 }
@@ -207,6 +220,7 @@ Rectangle {
             ChartTab {
                 webChannel: webChannel
                 pluginsModel: root.pluginsModel
+                selectedSymbol: root.currentSymbol
             }
 
             // Tab 2: Analysis

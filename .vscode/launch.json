@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Xungungo (Debug)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "XUNGUNGO_DEBUG": "1"
+      }
+    }
+  ]
+}

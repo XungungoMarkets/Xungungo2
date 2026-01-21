@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+import os
 from PySide6.QtCore import QUrl, QTimer
 from PySide6.QtQml import QQmlApplicationEngine
 
@@ -36,6 +37,7 @@ class App:
         ctx = self.engine.rootContext()
         ctx.setContextProperty("tickerController", self.ticker)
         ctx.setContextProperty("searchController", self.search)
+        ctx.setContextProperty("appDebug", os.getenv("XUNGUNGO_DEBUG") == "1")
 
         # Load QML
         qml_path = Path(__file__).resolve().parent / "ui" / "qml" / "Main.qml"

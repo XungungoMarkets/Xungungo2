@@ -105,13 +105,3 @@ class IndicatorPlugin(ABC):
         }]
         """
         ...
-
-    def javascript_code(self) -> str | None:
-        """
-        Optional: Return custom JavaScript code for advanced rendering.
-        This code will be injected into the page.
-        
-        Return None for standard rendering (most plugins).
-        Return JS code string for custom renderers.
-        """
-        return None

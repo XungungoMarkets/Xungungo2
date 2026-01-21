@@ -129,7 +129,7 @@ plugin_manager.reload_plugins()
 
 Esto preservará las configuraciones pero recargará el código.
 
-## 🎨 JavaScript custom (OBSOLETO - Ya no necesario)
+## 🎨 JavaScript custom (no soportado)
 
 **¡Buenas noticias!** Ya no necesitas escribir JavaScript custom para la mayoría de casos de uso.
 
@@ -151,14 +151,7 @@ Solo para casos muy avanzados como:
 - Formas geométricas custom
 - Interactividad avanzada con el mouse
 
-Para estos casos, puedes implementar el método opcional:
-```python
-def javascript_code(self) -> str | None:
-    return """
-    // Tu código JavaScript aquí
-    // Será inyectado automáticamente en la página
-    """
-```
+Para estos casos, hoy debes integrar el JS manualmente en `xungungo/ui/web/`.
 
 ## 📊 Tipos de series soportadas
 

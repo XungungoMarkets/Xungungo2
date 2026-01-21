@@ -2,15 +2,15 @@ from __future__ import annotations
 import json
 import re
 import pandas as pd
-from PySide6.QtCore import QObject, Signal, Slot, QThread, QRunnable, QThreadPool
+from PySide6.QtCore import QObject, Signal, Slot, QRunnable, QThreadPool
 
 from xungungo.core.logger import get_logger
 from xungungo.data.datasource_base import DataSource
 from xungungo.indicators.manager import PluginManager
 from xungungo.bridge.chart_bridge import ChartBridge
 
-# Valid ticker symbol pattern (alphanumeric, dash, dot, equals)
-VALID_SYMBOL_PATTERN = re.compile(r'^[A-Z0-9\-\.=]+$', re.IGNORECASE)
+# Valid ticker symbol pattern (alphanumeric, dash, dot, equals, optional leading caret)
+VALID_SYMBOL_PATTERN = re.compile(r'^\^?[A-Z0-9\-\.=]+$', re.IGNORECASE)
 
 class _WorkerSignals(QObject):
     done = Signal(object)
@@ -42,6 +42,8 @@ class TickerController(QObject):
 
         self.df_main: pd.DataFrame | None = None
         self.symbol: str | None = None
+        self.interval: str = "1d"
+        self.period: str = "10y"
 
         self.pool = QThreadPool.globalInstance()
 
@@ -148,13 +150,58 @@ class TickerController(QObject):
 
         # Validate symbol format to prevent injection attacks
         if not VALID_SYMBOL_PATTERN.match(symbol):
-            self.statusChanged.emit(f"Error: Símbolo inválido '{symbol}'. Use solo letras, números, guiones y puntos.")
+            self.statusChanged.emit(
+                f"Error: Simbolo invalido '{symbol}'. Use solo letras, numeros, guiones, puntos y '^' al inicio."
+            )
             return
 
         self.symbol = symbol
-        self.statusChanged.emit(f"Cargando {symbol}...")
+        self._reload_symbol()
+
+    @Slot(result=str)
+    def getInterval(self) -> str:
+        return self.interval
+
+    @Slot(result=str)
+    def getPeriod(self) -> str:
+        return self.period
+
+    @Slot(str)
+    def setInterval(self, interval: str):
+        interval = (interval or "").strip()
+        if not interval:
+            return
+        interval, period = self.datasource.normalize_interval_period(interval, self.period)
+        if interval == self.interval and period == self.period:
+            return
+        self.interval = interval
+        self.period = period
+        if self.symbol:
+            self._reload_symbol()
+
+    @Slot(str)
+    def setPeriod(self, period: str):
+        period = (period or "").strip()
+        if not period:
+            return
+        interval, period = self.datasource.normalize_interval_period(self.interval, period)
+        if interval == self.interval and period == self.period:
+            return
+        self.interval = interval
+        self.period = period
+        if self.symbol:
+            self._reload_symbol()
+
+    def _reload_symbol(self):
+        if not self.symbol:
+            return
+        symbol = self.symbol
+        interval, period = self.datasource.normalize_interval_period(self.interval, self.period)
+        self.interval = interval
+        self.period = period
+        self.statusChanged.emit(f"Cargando {symbol} ({self.interval}/{self.period})...")
         def job():
-            df = self.datasource.fetch_ohlcv(symbol)
+            df = self.datasource.fetch_ohlcv(symbol, interval=self.interval, period=self.period)
             df2 = self.plugins.compute_all(df)
             return df2
         task = _FetchComputeTask(job)
