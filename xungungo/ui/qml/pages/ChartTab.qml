@@ -22,6 +22,38 @@ Item {
     // Track which accordion is expanded
     property string expandedPluginId: ""
 
+    // Sync UI with restored chart state when symbol changes
+    // We need to sync AFTER the controller has processed the symbol change
+    Connections {
+        target: tickerController
+        function onStatusChanged(msg) {
+            // Sync combos when loading completes (status contains "OK:")
+            if (msg.startsWith("OK:") && root.selectedSymbol) {
+                root.syncChartStateFromController()
+            }
+        }
+    }
+
+    function syncChartStateFromController() {
+        // Sync period combo
+        var currentPeriod = tickerController.getPeriod()
+        var periodIdx = periodCombo.model.indexOf(currentPeriod)
+        if (periodIdx >= 0 && periodIdx !== periodCombo.currentIndex) {
+            root.syncingPeriod = true
+            periodCombo.currentIndex = periodIdx
+            root.syncingPeriod = false
+        }
+
+        // Sync interval combo
+        var currentInterval = tickerController.getInterval()
+        var intervalIdx = intervalCombo.model.indexOf(currentInterval)
+        if (intervalIdx >= 0 && intervalIdx !== intervalCombo.currentIndex) {
+            root.syncingInterval = true
+            intervalCombo.currentIndex = intervalIdx
+            root.syncingInterval = false
+        }
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 0

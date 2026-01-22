@@ -67,6 +67,7 @@ class TickerController(QObject):
         self.pluginsChanged.emit(self.getPlugins())
         if self.df_main is not None:
             self._recompute_and_push()
+        self._save_current_state()
 
     @Slot(str, float, float)
     def setKalmanParams(self, plugin_id: str, fast_q: float, slow_q: float):
@@ -109,6 +110,7 @@ class TickerController(QObject):
         self.pluginsChanged.emit(self.getPlugins())
         if self.df_main is not None and plugin_id in self.plugins.enabled_plugins():
             self._recompute_and_push()
+        self._save_current_state()
 
     @Slot(str, str, result=bool)
     def applyPreset(self, plugin_id: str, preset_id: str) -> bool:
@@ -118,6 +120,7 @@ class TickerController(QObject):
             self.pluginsChanged.emit(self.getPlugins())
             if self.df_main is not None and plugin_id in self.plugins.enabled_plugins():
                 self._recompute_and_push()
+            self._save_current_state()
         return success
 
     @Slot(str, str, str, str, str, result=bool)
@@ -155,7 +158,21 @@ class TickerController(QObject):
             )
             return
 
+        # Save current ticker state before switching
+        if self.symbol:
+            self._save_current_state()
+
         self.symbol = symbol
+
+        # Try to load saved state for this ticker
+        saved_state = self.plugins.load_chart_state_for_ticker(symbol)
+        if saved_state:
+            self.interval = saved_state.get("interval", self.interval)
+            self.period = saved_state.get("period", self.period)
+            self.plugins.apply_chart_state(saved_state)
+            self.pluginsChanged.emit(self.getPlugins())
+            self.log.info(f"Restored saved state for {symbol}")
+
         self._reload_symbol()
 
     @Slot(result=str)
@@ -178,6 +195,7 @@ class TickerController(QObject):
         self.period = period
         if self.symbol:
             self._reload_symbol()
+            self._save_current_state()
 
     @Slot(str)
     def setPeriod(self, period: str):
@@ -191,6 +209,7 @@ class TickerController(QObject):
         self.period = period
         if self.symbol:
             self._reload_symbol()
+            self._save_current_state()
 
     def _reload_symbol(self):
         if not self.symbol:
@@ -336,3 +355,26 @@ class TickerController(QObject):
                 ]
 
         return out
+
+    def _save_current_state(self) -> None:
+        """Save current chart state for the current ticker."""
+        if self.symbol:
+            self.plugins.save_chart_state_for_ticker(
+                self.symbol, self.interval, self.period
+            )
+
+    @Slot(result=str)
+    def getChartState(self) -> str:
+        """Get saved chart state for current ticker (for QML to sync UI)."""
+        if not self.symbol:
+            return "{}"
+        state = self.plugins.load_chart_state_for_ticker(self.symbol)
+        if state:
+            return json.dumps({
+                "interval": state.get("interval", self.interval),
+                "period": state.get("period", self.period)
+            })
+        return json.dumps({
+            "interval": self.interval,
+            "period": self.period
+        })

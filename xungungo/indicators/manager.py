@@ -18,11 +18,13 @@ class PluginManager:
         self._configs: dict[str, dict[str, Any]] = {}
         self._current_preset_id: dict[str, str] = {}
         self._custom_presets: dict[str, dict[str, dict[str, Any]]] = {}  # plugin_id -> {preset_id: preset_data}
+        self._chart_state: dict[str, dict[str, Any]] = {}  # ticker -> chart state (timeframe + indicators)
         self.log = get_logger("xungungo.plugins")
 
         # Autodiscovery de plugins
         self._discover_plugins()
         self._load_custom_presets()
+        self._load_chart_state()
 
     def _discover_plugins(self) -> None:
         """
@@ -310,3 +312,109 @@ class PluginManager:
         self._current_preset_id[plugin_id] = preset_id
         self.log.info(f"Applied preset '{preset_id}' to plugin '{plugin_id}'")
         return True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Chart State Persistence (per ticker)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _get_chart_state_file(self) -> Path:
+        """Get path to chart state file."""
+        return Path.home() / ".xungungo" / "chart_state.json"
+
+    def _load_chart_state(self) -> None:
+        """Load chart state from file."""
+        state_file = self._get_chart_state_file()
+        if not state_file.exists():
+            return
+
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                self._chart_state = json.load(f)
+            self.log.info(f"Loaded chart state from {state_file}")
+        except Exception as e:
+            self.log.error(f"Failed to load chart state: {e}")
+            self._chart_state = {}
+
+    def _save_chart_state(self) -> None:
+        """Save chart state to file."""
+        state_file = self._get_chart_state_file()
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(state_file, "w", encoding="utf-8") as f:
+                json.dump(self._chart_state, f, indent=2)
+            self.log.debug(f"Saved chart state to {state_file}")
+        except Exception as e:
+            self.log.error(f"Failed to save chart state: {e}")
+
+    def save_chart_state_for_ticker(self, ticker: str, interval: str, period: str) -> None:
+        """
+        Save the current chart configuration for a specific ticker.
+
+        Args:
+            ticker: The ticker symbol (e.g., "AAPL", "BTC-USD")
+            interval: Current interval (e.g., "1d", "1h")
+            period: Current period (e.g., "1y", "1mo")
+        """
+        if not ticker:
+            return
+
+        # Build indicators state
+        indicators_state = {}
+        for pid in self._plugins.keys():
+            indicators_state[pid] = {
+                "enabled": self._enabled.get(pid, False),
+                "preset_id": self._current_preset_id.get(pid, ""),
+                "config": self._configs.get(pid, {}).copy()
+            }
+
+        self._chart_state[ticker] = {
+            "interval": interval,
+            "period": period,
+            "indicators": indicators_state
+        }
+
+        self._save_chart_state()
+        self.log.debug(f"Saved chart state for {ticker}")
+
+    def load_chart_state_for_ticker(self, ticker: str) -> dict[str, Any] | None:
+        """
+        Load the saved chart configuration for a specific ticker.
+
+        Args:
+            ticker: The ticker symbol
+
+        Returns:
+            Dict with interval, period, and indicators state, or None if not found
+        """
+        return self._chart_state.get(ticker)
+
+    def apply_chart_state(self, state: dict[str, Any]) -> None:
+        """
+        Apply a previously saved chart state to the current session.
+
+        Args:
+            state: The chart state dict containing indicators configuration
+        """
+        indicators_state = state.get("indicators", {})
+
+        for pid, ind_state in indicators_state.items():
+            if pid not in self._plugins:
+                continue
+
+            # Restore enabled state
+            self._enabled[pid] = ind_state.get("enabled", False)
+
+            # Restore config
+            saved_config = ind_state.get("config", {})
+            if saved_config:
+                self._configs[pid] = saved_config.copy()
+
+            # Restore preset ID
+            self._current_preset_id[pid] = ind_state.get("preset_id", "")
+
+        self.log.info("Applied saved chart state")
+
+    def get_chart_state_tickers(self) -> list[str]:
+        """Get list of tickers with saved chart state."""
+        return list(self._chart_state.keys())
