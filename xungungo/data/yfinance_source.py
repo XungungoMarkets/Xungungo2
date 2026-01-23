@@ -1,4 +1,5 @@
 from __future__ import annotations
+import threading
 import time
 import pandas as pd
 import yfinance as yf
@@ -7,11 +8,17 @@ from xungungo.core.logger import get_logger
 from .datasource_base import DataSource
 from .normalize import normalize_yfinance
 
+# Global lock for yfinance - it's not thread-safe for concurrent downloads
+_yfinance_lock = threading.Lock()
+
 
 class YFinanceDataSource(DataSource):
     """
     DataSource implementation using yfinance.
     Includes in-memory cache with 1-day TTL and retry logic for network failures.
+
+    Note: yfinance is NOT thread-safe for concurrent downloads. This class uses
+    a global lock to serialize calls to yf.download().
     """
     # Cache TTL in seconds (1 day)
     CACHE_TTL = 86400
@@ -45,11 +52,15 @@ class YFinanceDataSource(DataSource):
         "max",
     ]
 
+    # Interval order from smallest to largest granularity
+    _INTERVAL_ORDER = ["1m", "5m", "15m", "30m", "1h", "1d", "1wk"]
+
     def __init__(self):
         self.log = get_logger("xungungo.yfinance")
         self._cache = {}  # Format: {cache_key: (dataframe, timestamp)}
 
     def normalize_interval_period(self, interval: str, period: str) -> tuple[str, str]:
+        """Clamp period down if it exceeds the interval's maximum."""
         interval = (interval or "").strip()
         period = (period or "").strip()
         max_period = self._MAX_PERIOD_BY_INTERVAL.get(interval)
@@ -65,6 +76,65 @@ class YFinanceDataSource(DataSource):
                 f"Clamping period '{period}' to '{max_period}' for interval '{interval}'"
             )
             return interval, max_period
+        return interval, period
+
+    def get_min_interval_for_period(self, period: str) -> str:
+        """
+        Get the minimum (finest granularity) interval that supports the given period.
+
+        For example:
+        - period "10y" → returns "1d" (smallest interval that supports 10y)
+        - period "2y" → returns "1h" (smallest interval that supports 2y)
+        - period "1mo" → returns "5m" (smallest interval that supports 1mo)
+        - period "5d" → returns "1m" (smallest interval that supports 5d)
+        """
+        period = (period or "").strip()
+        try:
+            period_idx = self._PERIOD_ORDER.index(period)
+        except ValueError:
+            return "1d"  # Default fallback
+
+        # Find the smallest interval that can support this period
+        for interval in self._INTERVAL_ORDER:
+            max_period = self._MAX_PERIOD_BY_INTERVAL.get(interval)
+            if not max_period:
+                continue
+            try:
+                max_idx = self._PERIOD_ORDER.index(max_period)
+                if max_idx >= period_idx:
+                    return interval
+            except ValueError:
+                continue
+
+        return "1d"  # Fallback to daily
+
+    def normalize_period_adjusting_interval(self, interval: str, period: str) -> tuple[str, str]:
+        """
+        Adjust interval UP if the period requires a larger interval.
+        Used when user changes period and expects interval to adapt.
+        """
+        interval = (interval or "").strip()
+        period = (period or "").strip()
+
+        # Check if current interval supports the period
+        max_period = self._MAX_PERIOD_BY_INTERVAL.get(interval)
+        if not max_period:
+            return interval, period
+
+        try:
+            max_idx = self._PERIOD_ORDER.index(max_period)
+            period_idx = self._PERIOD_ORDER.index(period)
+        except ValueError:
+            return interval, period
+
+        if period_idx > max_idx:
+            # Period is too large for current interval, find minimum interval
+            new_interval = self.get_min_interval_for_period(period)
+            self.log.info(
+                f"Adjusting interval from '{interval}' to '{new_interval}' for period '{period}'"
+            )
+            return new_interval, period
+
         return interval, period
 
     def fetch_ohlcv(self, symbol: str, interval: str = "1d", period: str = "10y") -> pd.DataFrame:
@@ -103,13 +173,15 @@ class YFinanceDataSource(DataSource):
             try:
                 self.log.info(f"Fetching {symbol} (attempt {attempt + 1}/{self.MAX_RETRIES})")
 
-                df = yf.download(
-                    symbol,
-                    period=period,
-                    interval=interval,
-                    auto_adjust=False,
-                    progress=False
-                )
+                # CRITICAL: yfinance is NOT thread-safe - must serialize downloads
+                with _yfinance_lock:
+                    df = yf.download(
+                        symbol,
+                        period=period,
+                        interval=interval,
+                        auto_adjust=False,
+                        progress=False
+                    )
 
                 if df is None or df.empty:
                     raise ValueError(f"No data returned for symbol: {symbol}")

@@ -7,7 +7,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/run.py",
       "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
+      "console": "power",
       "env": {
         "XUNGUNGO_DEBUG": "1"
       }

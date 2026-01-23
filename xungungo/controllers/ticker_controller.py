@@ -12,40 +12,137 @@ from xungungo.bridge.chart_bridge import ChartBridge
 # Valid ticker symbol pattern (alphanumeric, dash, dot, equals, optional leading caret)
 VALID_SYMBOL_PATTERN = re.compile(r'^\^?[A-Z0-9\-\.=]+$', re.IGNORECASE)
 
+
+class TabState:
+    """Encapsula el estado de un tab individual."""
+    def __init__(self):
+        self.symbol: str | None = None
+        self.interval: str = "1d"
+        self.period: str = "10y"
+        self.df_main: pd.DataFrame | None = None
+        self.bridge: ChartBridge | None = None
+        # Plugin state for this tab (what plugins are enabled and their config)
+        self.plugin_state: dict | None = None
+
 class _WorkerSignals(QObject):
     done = Signal(object)
-    error = Signal(str)
+    error = Signal(str, str)  # (tab_id, message)
 
 class _FetchComputeTask(QRunnable):
-    def __init__(self, fn):
+    def __init__(self, fn, tab_id, plugin_state=None):
         super().__init__()
         self.fn = fn
+        self.tab_id = tab_id
+        self.plugin_state = plugin_state
         self.signals = _WorkerSignals()
 
     def run(self):
         try:
             res = self.fn()
-            self.signals.done.emit(res)
+            self.signals.done.emit((res, self.tab_id))
         except Exception as e:
-            self.signals.error.emit(str(e))
+            self.signals.error.emit(self.tab_id, str(e))
 
 class TickerController(QObject):
-    statusChanged = Signal(str)
+    statusChanged = Signal(str, str)  # (tab_id, message)
     pluginsChanged = Signal(str)  # JSON list
 
-    def __init__(self, datasource: DataSource, plugins: PluginManager, bridge: ChartBridge):
+    def __init__(self, datasource: DataSource, plugins: PluginManager):
         super().__init__()
         self.log = get_logger("xungungo.ticker")
         self.datasource = datasource
         self.plugins = plugins
-        self.bridge = bridge
 
-        self.df_main: pd.DataFrame | None = None
-        self.symbol: str | None = None
-        self.interval: str = "1d"
-        self.period: str = "10y"
+        # Multi-tab support: estado por tab
+        self._tab_states: dict[str, TabState] = {}
+        self._current_tab_id: str | None = None
 
         self.pool = QThreadPool.globalInstance()
+
+    def _get_current_state(self) -> TabState:
+        """Retorna el estado del tab actual."""
+        if self._current_tab_id and self._current_tab_id in self._tab_states:
+            return self._tab_states[self._current_tab_id]
+        # Fallback: crear estado temporal
+        if self._current_tab_id:
+            self._tab_states[self._current_tab_id] = TabState()
+            return self._tab_states[self._current_tab_id]
+        # Si no hay tab activo, crear uno temporal
+        temp_state = TabState()
+        return temp_state
+
+    @Slot(str)
+    def setCurrentTab(self, tab_id: str):
+        """Cambia el tab activo."""
+        # Save current tab's plugin state before switching
+        if self._current_tab_id and self._current_tab_id in self._tab_states:
+            current_state = self._tab_states[self._current_tab_id]
+            current_state.plugin_state = self.plugins.get_state_snapshot()
+            self.log.debug(f"Saved plugin state for tab: {self._current_tab_id}")
+
+        # Create new tab state if needed
+        if tab_id not in self._tab_states:
+            self._tab_states[tab_id] = TabState()
+
+        # Switch to new tab
+        self._current_tab_id = tab_id
+        self.log.debug(f"Current tab changed to: {tab_id}")
+
+        # Restore new tab's plugin state
+        state = self._get_current_state()
+        if state.plugin_state:
+            self.plugins.restore_state_snapshot(state.plugin_state)
+            self.log.debug(f"Restored plugin state for tab: {tab_id}")
+
+        # Emit status for UI sync
+        if state.symbol:
+            self.statusChanged.emit(tab_id, f"OK: {state.symbol} ({len(state.df_main) if state.df_main is not None else 0} velas)")
+            # Re-push data to chart if already loaded
+            if state.df_main is not None and state.bridge is not None:
+                self._push_all()
+        self.pluginsChanged.emit(self.getPlugins())
+
+    @Slot(str, QObject)
+    def connectBridge(self, tab_id: str, proxy: QObject):
+        """Conecta un bridge a un proxy QML."""
+        if tab_id not in self._tab_states:
+            self._tab_states[tab_id] = TabState()
+
+        # Crear bridge para este tab si no existe
+        if self._tab_states[tab_id].bridge is None:
+            self._tab_states[tab_id].bridge = ChartBridge(parent=self)
+            self.log.info(f"Bridge created for tab: {tab_id}, bridge_id={id(self._tab_states[tab_id].bridge)}")
+
+        # Conectar bridge a proxy
+        bridge = self._tab_states[tab_id].bridge
+        try:
+            bridge.push.connect(proxy.push)
+            # When bridge is ready, push data if already loaded
+            proxy.readyRequested.connect(lambda tid=tab_id: self._on_bridge_ready(tid))
+            proxy.readyRequested.connect(bridge.ready)
+            self.log.info(f"Bridge connected for tab: {tab_id}, bridge_id={id(bridge)}, proxy={proxy.objectName()}")
+        except Exception as e:
+            self.log.error(f"Failed to connect bridge for {tab_id}: {e}")
+
+    def _on_bridge_ready(self, tab_id: str):
+        """Called when a bridge signals it's ready."""
+        self.log.info(f"_on_bridge_ready: tab_id={tab_id}")
+        if tab_id in self._tab_states:
+            state = self._tab_states[tab_id]
+            self.log.info(f"_on_bridge_ready: tab={tab_id}, symbol={state.symbol}, has_data={state.df_main is not None}, bridge_id={id(state.bridge) if state.bridge else None}")
+            # If this tab already has data loaded, push it now
+            if state.df_main is not None and state.bridge is not None:
+                self.log.info(f"_on_bridge_ready: Re-pushing data for tab {tab_id}, symbol={state.symbol}")
+                self._push_all_for_tab(tab_id)
+        else:
+            self.log.warning(f"_on_bridge_ready: tab_id={tab_id} not in _tab_states!")
+
+    @Slot(str, result=str)
+    def getBridgeForTab(self, tab_id: str) -> str:
+        """Retorna el objectName del bridge para un tab (usado internamente)."""
+        if tab_id in self._tab_states and self._tab_states[tab_id].bridge:
+            return self._tab_states[tab_id].bridge.objectName()
+        return ""
 
     @Slot(result=str)
     def getPlugins(self) -> str:
@@ -65,7 +162,8 @@ class TickerController(QObject):
     def setPluginEnabled(self, plugin_id: str, enabled: bool):
         self.plugins.enable(plugin_id, enabled)
         self.pluginsChanged.emit(self.getPlugins())
-        if self.df_main is not None:
+        state = self._get_current_state()
+        if state.df_main is not None:
             self._recompute_and_push()
         self._save_current_state()
 
@@ -81,7 +179,8 @@ class TickerController(QObject):
         cfg["slow"] = slow
         self.plugins.set_config(plugin_id, cfg)
         self.pluginsChanged.emit(self.getPlugins())
-        if self.df_main is not None and plugin_id in self.plugins.enabled_plugins():
+        state = self._get_current_state()
+        if state.df_main is not None and plugin_id in self.plugins.enabled_plugins():
             self._recompute_and_push()
 
     @staticmethod
@@ -108,7 +207,8 @@ class TickerController(QObject):
         cfg = self._deep_merge(cfg, patch)
         self.plugins.set_config(plugin_id, cfg)
         self.pluginsChanged.emit(self.getPlugins())
-        if self.df_main is not None and plugin_id in self.plugins.enabled_plugins():
+        state = self._get_current_state()
+        if state.df_main is not None and plugin_id in self.plugins.enabled_plugins():
             self._recompute_and_push()
         self._save_current_state()
 
@@ -118,7 +218,8 @@ class TickerController(QObject):
         success = self.plugins.apply_preset(plugin_id, preset_id)
         if success:
             self.pluginsChanged.emit(self.getPlugins())
-            if self.df_main is not None and plugin_id in self.plugins.enabled_plugins():
+            state = self._get_current_state()
+            if state.df_main is not None and plugin_id in self.plugins.enabled_plugins():
                 self._recompute_and_push()
             self._save_current_state()
         return success
@@ -145,55 +246,92 @@ class TickerController(QObject):
             self.pluginsChanged.emit(self.getPlugins())
         return success
 
-    @Slot(str)
-    def loadSymbol(self, symbol: str):
+    @Slot(str, str)
+    def loadSymbolForTab(self, tab_id: str, symbol: str):
+        """Load a symbol for a specific tab (thread-safe for concurrent loads)."""
         symbol = (symbol or "").strip().upper()
-        if not symbol:
+        if not symbol or not tab_id:
             return
 
         # Validate symbol format to prevent injection attacks
         if not VALID_SYMBOL_PATTERN.match(symbol):
             self.statusChanged.emit(
+                tab_id,
                 f"Error: Simbolo invalido '{symbol}'. Use solo letras, numeros, guiones, puntos y '^' al inicio."
             )
             return
 
-        # Save current ticker state before switching
-        if self.symbol:
-            self._save_current_state()
+        # Ensure tab state exists
+        if tab_id not in self._tab_states:
+            self._tab_states[tab_id] = TabState()
 
-        self.symbol = symbol
+        state = self._tab_states[tab_id]
+
+        # Save current ticker state before switching
+        if state.symbol:
+            self._save_state_for_tab(tab_id)
+
+        state.symbol = symbol
 
         # Try to load saved state for this ticker
         saved_state = self.plugins.load_chart_state_for_ticker(symbol)
         if saved_state:
-            self.interval = saved_state.get("interval", self.interval)
-            self.period = saved_state.get("period", self.period)
-            self.plugins.apply_chart_state(saved_state)
-            self.pluginsChanged.emit(self.getPlugins())
-            self.log.info(f"Restored saved state for {symbol}")
+            state.interval = saved_state.get("interval", state.interval)
+            state.period = saved_state.get("period", state.period)
+            # Save the chart state to the tab's plugin_state
+            state.plugin_state = {
+                "enabled": {pid: ind.get("enabled", False) for pid, ind in saved_state.get("indicators", {}).items()},
+                "configs": {pid: ind.get("config", {}) for pid, ind in saved_state.get("indicators", {}).items()},
+                "preset_ids": {pid: ind.get("preset_id", "") for pid, ind in saved_state.get("indicators", {}).items()}
+            }
+            self.log.info(f"Restored saved state for {symbol} in tab {tab_id}")
 
-        self._reload_symbol()
+        self._reload_symbol_for_tab(tab_id)
+
+    @Slot(str)
+    def loadSymbol(self, symbol: str):
+        """Load a symbol for the current tab (legacy API)."""
+        if self._current_tab_id:
+            self.loadSymbolForTab(self._current_tab_id, symbol)
+        else:
+            self.log.warning("loadSymbol called without current tab set")
 
     @Slot(result=str)
     def getInterval(self) -> str:
-        return self.interval
+        state = self._get_current_state()
+        return state.interval
 
     @Slot(result=str)
     def getPeriod(self) -> str:
-        return self.period
+        state = self._get_current_state()
+        return state.period
+
+    @Slot(str, result=str)
+    def getIntervalForTab(self, tab_id: str) -> str:
+        """Get interval for a specific tab."""
+        if tab_id in self._tab_states:
+            return self._tab_states[tab_id].interval
+        return "1d"
+
+    @Slot(str, result=str)
+    def getPeriodForTab(self, tab_id: str) -> str:
+        """Get period for a specific tab."""
+        if tab_id in self._tab_states:
+            return self._tab_states[tab_id].period
+        return "1y"
 
     @Slot(str)
     def setInterval(self, interval: str):
         interval = (interval or "").strip()
         if not interval:
             return
-        interval, period = self.datasource.normalize_interval_period(interval, self.period)
-        if interval == self.interval and period == self.period:
+        state = self._get_current_state()
+        interval, period = self.datasource.normalize_interval_period(interval, state.period)
+        if interval == state.interval and period == state.period:
             return
-        self.interval = interval
-        self.period = period
-        if self.symbol:
+        state.interval = interval
+        state.period = period
+        if state.symbol:
             self._reload_symbol()
             self._save_current_state()
 
@@ -202,68 +340,121 @@ class TickerController(QObject):
         period = (period or "").strip()
         if not period:
             return
-        interval, period = self.datasource.normalize_interval_period(self.interval, period)
-        if interval == self.interval and period == self.period:
+        state = self._get_current_state()
+        # Use normalize_period_adjusting_interval to adjust interval UP if period requires it
+        interval, period = self.datasource.normalize_period_adjusting_interval(state.interval, period)
+        if interval == state.interval and period == state.period:
             return
-        self.interval = interval
-        self.period = period
-        if self.symbol:
+        state.interval = interval
+        state.period = period
+        if state.symbol:
             self._reload_symbol()
             self._save_current_state()
 
-    def _reload_symbol(self):
-        if not self.symbol:
+    def _reload_symbol_for_tab(self, tab_id: str):
+        """Reload symbol data for a specific tab (thread-safe)."""
+        if tab_id not in self._tab_states:
+            self.log.warning(f"_reload_symbol_for_tab: unknown tab {tab_id}")
             return
-        symbol = self.symbol
-        interval, period = self.datasource.normalize_interval_period(self.interval, self.period)
-        self.interval = interval
-        self.period = period
-        self.statusChanged.emit(f"Cargando {symbol} ({self.interval}/{self.period})...")
+
+        state = self._tab_states[tab_id]
+        if not state.symbol:
+            return
+
+        # CRITICAL: Capture values as local variables to avoid closure issues
+        captured_symbol = str(state.symbol)  # Force copy
+        captured_tab_id = str(tab_id)  # Force copy
+        interval, period = self.datasource.normalize_interval_period(state.interval, state.period)
+        captured_interval = str(interval)
+        captured_period = str(period)
+        state.interval = interval
+        state.period = period
+
+        # Use tab's plugin state, or get current global state if none
+        plugin_state_snapshot = state.plugin_state.copy() if state.plugin_state else self.plugins.get_state_snapshot()
+
+        self.log.info(f"_reload_symbol_for_tab: tab={captured_tab_id}, symbol={captured_symbol}, interval={captured_interval}, period={captured_period}")
+        self.statusChanged.emit(tab_id, f"Cargando {captured_symbol} ({captured_interval}/{captured_period})...")
+
         def job():
-            df = self.datasource.fetch_ohlcv(symbol, interval=self.interval, period=self.period)
-            df2 = self.plugins.compute_all(df)
+            # Log what we're actually fetching inside the job
+            self.log.info(f"JOB EXECUTING: tab={captured_tab_id}, symbol={captured_symbol}")
+            df = self.datasource.fetch_ohlcv(captured_symbol, interval=captured_interval, period=captured_period)
+            self.log.info(f"JOB FETCHED: tab={captured_tab_id}, symbol={captured_symbol}, rows={len(df)}, first_close={df['close'].iloc[0] if len(df) > 0 else 'N/A'}")
+            # Use state_snapshot directly (thread-safe, no global state manipulation)
+            df2 = self.plugins.compute_all(df, state_snapshot=plugin_state_snapshot)
             return df2
-        task = _FetchComputeTask(job)
+
+        task = _FetchComputeTask(job, captured_tab_id, plugin_state_snapshot)
         task.signals.done.connect(self._on_loaded)
         task.signals.error.connect(self._on_error)
         self.pool.start(task)
 
-    def _on_loaded(self, df: pd.DataFrame):
-        self.df_main = df
-        self.statusChanged.emit(f"OK: {self.symbol} ({len(df)} velas)")
-        self._push_all()
+    def _reload_symbol(self):
+        """Reload symbol for current tab (legacy, uses _current_tab_id)."""
+        if self._current_tab_id:
+            self._reload_symbol_for_tab(self._current_tab_id)
 
-    def _on_error(self, msg: str):
-        self.statusChanged.emit(f"Error: {msg}")
+    def _on_loaded(self, result):
+        """Called when data fetch completes. Result is (df, tab_id)."""
+        df, tab_id = result
+        self.log.info(f"_on_loaded: tab_id={tab_id}, rows={len(df)}")
+
+        if tab_id not in self._tab_states:
+            self.log.warning(f"Received data for unknown tab: {tab_id}")
+            return
+
+        state = self._tab_states[tab_id]
+        state.df_main = df
+
+        self.log.info(f"_on_loaded: tab={tab_id}, symbol={state.symbol}, bridge_id={id(state.bridge) if state.bridge else None}")
+
+        # Save current plugin state for this tab if not already saved
+        if state.plugin_state is None:
+            state.plugin_state = self.plugins.get_state_snapshot()
+            self.log.debug(f"Saved initial plugin state for tab: {tab_id}")
+
+        self.statusChanged.emit(tab_id, f"OK: {state.symbol} ({len(df)} velas)")
+
+        # Push data directly to the specific tab (no global state manipulation)
+        self._push_all_for_tab(tab_id)
+
+    def _on_error(self, tab_id: str, msg: str):
+        self.statusChanged.emit(tab_id, f"Error: {msg}")
 
     def _recompute_and_push(self):
-        if self.df_main is None:
+        state = self._get_current_state()
+        if state.df_main is None:
             return
         # recompute from base OHLCV (drop indicator cols)
         base_cols = ["timestamp","open","high","low","close","volume"]
-        df_base = self.df_main[base_cols].copy()
+        df_base = state.df_main[base_cols].copy()
         df2 = self.plugins.compute_all(df_base)
-        self.df_main = df2
+        state.df_main = df2
         self._push_indicators_only()
 
     def _to_epoch(self, ts):
         # ts is pandas Timestamp (tz-aware)
         return int(pd.Timestamp(ts).timestamp())
 
-    def _get_series_definitions(self):
+    def _get_series_definitions_with_state(self, plugin_state: dict):
         """
-        Collect all series definitions from enabled plugins.
-        Returns list of dicts describing how to render each series.
+        Collect all series definitions from enabled plugins using explicit state.
+        Thread-safe for concurrent calls.
         """
         series_defs = []
+        enabled = plugin_state.get("enabled", {})
+        configs = plugin_state.get("configs", {})
 
-        for pid in self.plugins.enabled_plugins():
+        for pid, is_enabled in enabled.items():
+            if not is_enabled:
+                continue
             plugin = self.plugins.get_plugin(pid)
             if not plugin:
                 continue
 
-            # Get current configuration for this plugin
-            cfg = self.plugins.get_config(pid)
+            # Get configuration from state
+            cfg = configs.get(pid, {})
 
             # Get series definitions from plugin (with config for dynamic series)
             defs = plugin.chart_series(cfg)
@@ -272,10 +463,34 @@ class TickerController(QObject):
 
         return series_defs
 
-    def _push_all(self):
-        if self.df_main is None:
+    def _get_series_definitions(self):
+        """
+        Collect all series definitions from enabled plugins (legacy, uses global state).
+        """
+        return self._get_series_definitions_with_state(self.plugins.get_state_snapshot())
+
+    def _push_all_for_tab(self, tab_id: str):
+        """Push all data to a specific tab (thread-safe, no global state dependency)."""
+        self.log.info(f"_push_all_for_tab: START tab_id={tab_id}")
+
+        if tab_id not in self._tab_states:
+            self.log.warning(f"_push_all_for_tab: unknown tab {tab_id}")
             return
-        df = self.df_main
+
+        state = self._tab_states[tab_id]
+        self.log.info(f"_push_all_for_tab: tab={tab_id}, symbol={state.symbol}, bridge_id={id(state.bridge) if state.bridge else None}")
+
+        if state.df_main is None or state.bridge is None:
+            self.log.warning(f"_push_all_for_tab: df_main={state.df_main is not None}, bridge={state.bridge is not None}")
+            return
+
+        # Wait for bridge to be ready before pushing data
+        if not state.bridge.is_ready():
+            self.log.debug(f"Bridge not ready yet for {tab_id}, data will be pushed when ready")
+            return
+
+        df = state.df_main
+        plugin_state = state.plugin_state or self.plugins.get_state_snapshot()
 
         # Optimized: Use itertuples instead of zip for 3-5x better performance
         candles = [
@@ -288,50 +503,64 @@ class TickerController(QObject):
             }
             for row in df[["timestamp", "open", "high", "low", "close"]].itertuples(index=False)
         ]
-        
-        indicators = self._build_indicator_data(df)
-        series_defs = self._get_series_definitions()
-        
+
+        indicators = self._build_indicator_data_with_state(df, plugin_state)
+        series_defs = self._get_series_definitions_with_state(plugin_state)
+
+        # Log first and last candle for verification
+        if candles:
+            self.log.info(f"_push_all_for_tab: tab={tab_id}, symbol={state.symbol}, first_candle={candles[0]}, last_candle={candles[-1]}")
+
         payload = {
             "type": "all",
             "candles": candles,
             "indicators": indicators,
             "seriesDefs": series_defs
         }
-        self.bridge.push.emit(json.dumps(payload))
+        self.log.info(f"_push_all_for_tab: EMITTING to tab={tab_id}, bridge_id={id(state.bridge)}, {len(candles)} candles")
+        state.bridge.push.emit(json.dumps(payload))
+
+    def _push_all(self):
+        """Push all data for current tab (legacy, uses _current_tab_id)."""
+        if self._current_tab_id:
+            self._push_all_for_tab(self._current_tab_id)
 
     def _push_indicators_only(self):
-        if self.df_main is None:
+        state = self._get_current_state()
+        if state.df_main is None or state.bridge is None:
             return
-        df = self.df_main
-        
+        df = state.df_main
+
         indicators = self._build_indicator_data(df)
         series_defs = self._get_series_definitions()
-        
+
         payload = {
             "type": "indicators",
             "indicators": indicators,
             "seriesDefs": series_defs
         }
-        self.bridge.push.emit(json.dumps(payload))
+        state.bridge.push.emit(json.dumps(payload))
 
-    def _build_indicator_data(self, df: pd.DataFrame):
+    def _build_indicator_data_with_state(self, df: pd.DataFrame, plugin_state: dict):
         """
-        Build indicator data dict.
-        Key = column name, Value = list of {time, value} points
+        Build indicator data dict using explicit plugin state.
+        Thread-safe for concurrent calls.
         """
         out = {}
+        enabled = plugin_state.get("enabled", {})
+        configs = plugin_state.get("configs", {})
 
         # Collect all columns that need to be sent
         columns_needed = set()
 
-        for pid in self.plugins.enabled_plugins():
+        for pid, is_enabled in enabled.items():
+            if not is_enabled:
+                continue
             plugin = self.plugins.get_plugin(pid)
             if not plugin:
                 continue
 
-            # CRITICAL FIX: Pass current configuration to chart_series()
-            cfg = self.plugins.get_config(pid)
+            cfg = configs.get(pid, {})
 
             for s in plugin.chart_series(cfg):
                 # Series with direct column data (line, markers, etc.)
@@ -356,25 +585,56 @@ class TickerController(QObject):
 
         return out
 
+    def _build_indicator_data(self, df: pd.DataFrame):
+        """
+        Build indicator data dict (legacy, uses global state).
+        """
+        return self._build_indicator_data_with_state(df, self.plugins.get_state_snapshot())
+
+    def _save_state_for_tab(self, tab_id: str) -> None:
+        """Save chart state for a specific tab's ticker."""
+        if tab_id not in self._tab_states:
+            return
+        state = self._tab_states[tab_id]
+        if state.symbol and state.plugin_state:
+            # Build indicators state from tab's plugin_state
+            indicators_state = {}
+            enabled = state.plugin_state.get("enabled", {})
+            configs = state.plugin_state.get("configs", {})
+            preset_ids = state.plugin_state.get("preset_ids", {})
+            for pid in enabled.keys():
+                indicators_state[pid] = {
+                    "enabled": enabled.get(pid, False),
+                    "preset_id": preset_ids.get(pid, ""),
+                    "config": configs.get(pid, {})
+                }
+            # Save to persistent storage
+            self.plugins._chart_state[state.symbol] = {
+                "interval": state.interval,
+                "period": state.period,
+                "indicators": indicators_state
+            }
+            self.plugins._save_chart_state()
+            self.log.debug(f"Saved chart state for {state.symbol} from tab {tab_id}")
+
     def _save_current_state(self) -> None:
         """Save current chart state for the current ticker."""
-        if self.symbol:
-            self.plugins.save_chart_state_for_ticker(
-                self.symbol, self.interval, self.period
-            )
+        if self._current_tab_id:
+            self._save_state_for_tab(self._current_tab_id)
 
     @Slot(result=str)
     def getChartState(self) -> str:
         """Get saved chart state for current ticker (for QML to sync UI)."""
-        if not self.symbol:
+        state = self._get_current_state()
+        if not state.symbol:
             return "{}"
-        state = self.plugins.load_chart_state_for_ticker(self.symbol)
-        if state:
+        saved = self.plugins.load_chart_state_for_ticker(state.symbol)
+        if saved:
             return json.dumps({
-                "interval": state.get("interval", self.interval),
-                "period": state.get("period", self.period)
+                "interval": saved.get("interval", state.interval),
+                "period": saved.get("period", state.period)
             })
         return json.dumps({
-            "interval": self.interval,
-            "period": self.period
+            "interval": state.interval,
+            "period": state.period
         })

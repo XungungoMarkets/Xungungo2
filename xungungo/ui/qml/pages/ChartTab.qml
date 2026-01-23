@@ -10,6 +10,7 @@ Item {
     id: root
 
     // Properties passed from parent
+    property string tabId: ""
     property var webChannel
     property var pluginsModel: []
     property string selectedSymbol: ""
@@ -22,11 +23,22 @@ Item {
     // Track which accordion is expanded
     property string expandedPluginId: ""
 
+    // Sync combos when tabId becomes available
+    onTabIdChanged: {
+        if (tabId) {
+            syncChartStateFromController()
+        }
+    }
+
     // Sync UI with restored chart state when symbol changes
     // We need to sync AFTER the controller has processed the symbol change
     Connections {
         target: tickerController
-        function onStatusChanged(msg) {
+        function onStatusChanged(tabId, msg) {
+            // Only sync for this tab's status changes
+            if (tabId !== root.tabId) {
+                return
+            }
             // Sync combos when loading completes (status contains "OK:")
             if (msg.startsWith("OK:") && root.selectedSymbol) {
                 root.syncChartStateFromController()
@@ -35,8 +47,10 @@ Item {
     }
 
     function syncChartStateFromController() {
-        // Sync period combo
-        var currentPeriod = tickerController.getPeriod()
+        if (!root.tabId) return
+
+        // Sync period combo using tab-specific getter
+        var currentPeriod = tickerController.getPeriodForTab(root.tabId)
         var periodIdx = periodCombo.model.indexOf(currentPeriod)
         if (periodIdx >= 0 && periodIdx !== periodCombo.currentIndex) {
             root.syncingPeriod = true
@@ -44,8 +58,8 @@ Item {
             root.syncingPeriod = false
         }
 
-        // Sync interval combo
-        var currentInterval = tickerController.getInterval()
+        // Sync interval combo using tab-specific getter
+        var currentInterval = tickerController.getIntervalForTab(root.tabId)
         var intervalIdx = intervalCombo.model.indexOf(currentInterval)
         if (intervalIdx >= 0 && intervalIdx !== intervalCombo.currentIndex) {
             root.syncingInterval = true
@@ -186,10 +200,12 @@ Item {
                         }
 
                         Component.onCompleted: {
-                            var current = tickerController.getPeriod()
-                            var idx = model.indexOf(current)
-                            if (idx >= 0) {
-                                currentIndex = idx
+                            if (root.tabId) {
+                                var current = tickerController.getPeriodForTab(root.tabId)
+                                var idx = model.indexOf(current)
+                                if (idx >= 0) {
+                                    currentIndex = idx
+                                }
                             }
                         }
 
@@ -199,10 +215,21 @@ Item {
                             }
                             root.syncingPeriod = true
                             tickerController.setPeriod(currentText)
-                            var effective = tickerController.getPeriod()
-                            var idx = model.indexOf(effective)
-                            if (idx >= 0 && idx !== currentIndex) {
-                                currentIndex = idx
+                            // Re-sync from controller in case period/interval were adjusted
+                            if (root.tabId) {
+                                var effectivePeriod = tickerController.getPeriodForTab(root.tabId)
+                                var periodIdx = model.indexOf(effectivePeriod)
+                                if (periodIdx >= 0 && periodIdx !== currentIndex) {
+                                    currentIndex = periodIdx
+                                }
+                                // Also sync interval combo - it may have been adjusted UP for larger periods
+                                var effectiveInterval = tickerController.getIntervalForTab(root.tabId)
+                                var intervalIdx = intervalCombo.model.indexOf(effectiveInterval)
+                                if (intervalIdx >= 0 && intervalIdx !== intervalCombo.currentIndex) {
+                                    root.syncingInterval = true
+                                    intervalCombo.currentIndex = intervalIdx
+                                    root.syncingInterval = false
+                                }
                             }
                             root.syncingPeriod = false
                         }
@@ -238,10 +265,12 @@ Item {
                         }
 
                         Component.onCompleted: {
-                            var current = tickerController.getInterval()
-                            var idx = model.indexOf(current)
-                            if (idx >= 0) {
-                                currentIndex = idx
+                            if (root.tabId) {
+                                var current = tickerController.getIntervalForTab(root.tabId)
+                                var idx = model.indexOf(current)
+                                if (idx >= 0) {
+                                    currentIndex = idx
+                                }
                             }
                         }
 
@@ -251,15 +280,18 @@ Item {
                             }
                             root.syncingInterval = true
                             tickerController.setInterval(currentText)
-                            var effectiveInterval = tickerController.getInterval()
-                            var intervalIdx = model.indexOf(effectiveInterval)
-                            if (intervalIdx >= 0 && intervalIdx !== currentIndex) {
-                                currentIndex = intervalIdx
-                            }
-                            var effectivePeriod = tickerController.getPeriod()
-                            var periodIdx = periodCombo.model.indexOf(effectivePeriod)
-                            if (periodIdx >= 0 && periodIdx !== periodCombo.currentIndex) {
-                                periodCombo.currentIndex = periodIdx
+                            // Re-sync from controller in case interval/period were clamped
+                            if (root.tabId) {
+                                var effectiveInterval = tickerController.getIntervalForTab(root.tabId)
+                                var intervalIdx = model.indexOf(effectiveInterval)
+                                if (intervalIdx >= 0 && intervalIdx !== currentIndex) {
+                                    currentIndex = intervalIdx
+                                }
+                                var effectivePeriod = tickerController.getPeriodForTab(root.tabId)
+                                var periodIdx = periodCombo.model.indexOf(effectivePeriod)
+                                if (periodIdx >= 0 && periodIdx !== periodCombo.currentIndex) {
+                                    periodCombo.currentIndex = periodIdx
+                                }
                             }
                             root.syncingInterval = false
                         }

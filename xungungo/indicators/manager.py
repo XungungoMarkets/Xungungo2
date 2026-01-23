@@ -119,29 +119,47 @@ class PluginManager:
         self._configs[plugin_id] = cfg
         self._current_preset_id[plugin_id] = ""
 
-    def compute_all(self, df: pd.DataFrame) -> pd.DataFrame:
+    def compute_all(self, df: pd.DataFrame, state_snapshot: dict[str, Any] | None = None) -> pd.DataFrame:
         """
         Apply all enabled plugins to the DataFrame.
         Each plugin is isolated - if one fails, others continue executing.
 
         Optimization: Only makes one initial copy, then reuses the same DataFrame
         across plugins to minimize memory allocation.
+
+        Args:
+            df: Input DataFrame with OHLCV data
+            state_snapshot: Optional state snapshot to use instead of global state.
+                           This is thread-safe for concurrent calls.
+
+        Returns:
+            DataFrame with indicator columns added
         """
+        # Use snapshot state if provided (thread-safe), otherwise use global state
+        if state_snapshot:
+            enabled = state_snapshot.get("enabled", {})
+            configs = state_snapshot.get("configs", {})
+        else:
+            enabled = self._enabled
+            configs = self._configs
+
         # Single copy at the start
         out = df.copy()
 
         for pid, plugin in self._plugins.items():
-            if self._enabled.get(pid, False):
+            if enabled.get(pid, False):
                 try:
                     # Plugin applies transformations and returns modified DataFrame
                     # Most plugins add columns, so the same object can be reused
-                    out = plugin.apply(out, self._configs.get(pid, {}))
+                    cfg = configs.get(pid, {})
+                    out = plugin.apply(out, cfg)
                 except Exception as e:
                     # Log error but continue with other plugins
                     self.log.error(f"Plugin '{pid}' failed: {e}", exc_info=True)
-                    # Optionally disable the failing plugin to prevent repeated errors
-                    self._enabled[pid] = False
-                    self.log.warning(f"Plugin '{pid}' has been disabled due to error")
+                    # Only disable in global state if not using snapshot
+                    if not state_snapshot:
+                        self._enabled[pid] = False
+                        self.log.warning(f"Plugin '{pid}' has been disabled due to error")
 
         return out
 
@@ -418,3 +436,45 @@ class PluginManager:
     def get_chart_state_tickers(self) -> list[str]:
         """Get list of tickers with saved chart state."""
         return list(self._chart_state.keys())
+
+    def get_state_snapshot(self) -> dict[str, Any]:
+        """
+        Get a complete snapshot of the current plugin manager state.
+        This includes enabled state, configurations, and preset IDs.
+
+        Returns:
+            Dict containing all plugin state for this session
+        """
+        return {
+            "enabled": self._enabled.copy(),
+            "configs": {pid: cfg.copy() for pid, cfg in self._configs.items()},
+            "preset_ids": self._current_preset_id.copy()
+        }
+
+    def restore_state_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """
+        Restore plugin manager state from a snapshot.
+
+        Args:
+            snapshot: State snapshot created by get_state_snapshot()
+        """
+        if not snapshot:
+            return
+
+        # Restore enabled state
+        if "enabled" in snapshot:
+            for pid, enabled in snapshot["enabled"].items():
+                if pid in self._plugins:
+                    self._enabled[pid] = enabled
+
+        # Restore configs
+        if "configs" in snapshot:
+            for pid, cfg in snapshot["configs"].items():
+                if pid in self._plugins:
+                    self._configs[pid] = cfg.copy()
+
+        # Restore preset IDs
+        if "preset_ids" in snapshot:
+            for pid, preset_id in snapshot["preset_ids"].items():
+                if pid in self._plugins:
+                    self._current_preset_id[pid] = preset_id

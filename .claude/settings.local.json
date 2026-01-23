@@ -3,7 +3,14 @@
     "allow": [
       "Bash(tree:*)",
       "Bash(python run.py:*)",
-      "Bash(python -m xungungo.app:*)"
+      "Bash(python -m xungungo.app:*)",
+      "Bash(timeout 5 tail:*)",
+      "Bash(exit 0)",
+      "Bash(set XUNGUNGO_DEBUG=1)",
+      "Bash(python -m xungungo:*)",
+      "Bash(ls:*)",
+      "Bash(taskkill:*)",
+      "Bash(python -m py_compile:*)"
     ]
   }
 }
