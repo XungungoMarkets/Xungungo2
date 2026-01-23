@@ -4,7 +4,7 @@
 //  - qwebchannel.js
 //  - advanced_renderer.js (sistema genérico)
 
-const DEBUG = typeof window !== "undefined" && window.XUNGUNGO_DEBUG === true;
+const DEBUG = true; // Force debug for troubleshooting
 const log = (...args) => {
   if (DEBUG) console["log"](...args);
 };
@@ -514,6 +514,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (!Array.isArray(msg.seriesDefs)) {
                   console.error("Invalid 'seriesDefs': expected array");
                   return;
+                }
+
+                // DEBUG: Log first and last candle to identify the data
+                if (msg.candles.length > 0) {
+                  console.log("JS CHART: Receiving data, first_candle:", JSON.stringify(msg.candles[0]), "last_candle:", JSON.stringify(msg.candles[msg.candles.length - 1]));
                 }
 
                 ChartManager.setCandles(msg.candles);
