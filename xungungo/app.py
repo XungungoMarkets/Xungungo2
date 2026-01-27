@@ -11,6 +11,7 @@ from xungungo.indicators.manager import PluginManager
 from xungungo.controllers.ticker_controller import TickerController
 from xungungo.controllers.search_controller import SearchController
 from xungungo.controllers.tab_manager import TabManager
+from xungungo.controllers.analysis_controller import AnalysisController
 
 
 class App:
@@ -29,12 +30,14 @@ class App:
         # Create controllers (sin bridge inicial, se crean por tab)
         self.ticker = TickerController(self.datasource, self.plugins)
         self.search = SearchController(self.search_client)
+        self.analysis = AnalysisController()
 
         # Set context properties BEFORE loading QML
         ctx = self.engine.rootContext()
         ctx.setContextProperty("tickerController", self.ticker)
         ctx.setContextProperty("searchController", self.search)
         ctx.setContextProperty("tabManager", self.tab_manager)
+        ctx.setContextProperty("analysisController", self.analysis)
         ctx.setContextProperty("appDebug", os.getenv("XUNGUNGO_DEBUG") == "1")
 
         # Load QML

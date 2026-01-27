@@ -10,7 +10,8 @@
       "Bash(python -m xungungo:*)",
       "Bash(ls:*)",
       "Bash(taskkill:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(python:*)"
     ]
   }
 }

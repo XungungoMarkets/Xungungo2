@@ -49,26 +49,22 @@ Rectangle {
     // Listen to pluginsChanged signal to update model
     Connections {
         target: tickerController
-        function onPluginsChanged(pluginsJson) {
+        function onPluginsChanged(tabId, pluginsJson) {
+            // Only process plugins changes for this tab
+            if (tabId !== root.tabId) {
+                return
+            }
             parsePluginsModel(pluginsJson)
         }
     }
 
-    // Listen to status changes
+    // Listen to status changes (local state only, global status handled by Main.qml)
     Connections {
         target: tickerController
         function onStatusChanged(tabId, msg) {
             // Only process status changes for this tab
             if (tabId !== root.tabId) {
                 return
-            }
-
-            if (appDebug) {
-                console.log("Status changed for tab", root.tabId, ":", msg)
-            }
-            var mainWin = getMainWindow()
-            if (mainWin && mainWin.setStatusText) {
-                mainWin.setStatusText(msg)
             }
             isLoading = msg.includes("Loading") || msg.includes("Cargando")
         }
@@ -83,14 +79,6 @@ Rectangle {
         } catch(e) {
             console.error("Failed to parse plugins for tab", root.tabId, ":", e)
         }
-    }
-
-    function getMainWindow() {
-        var item = root
-        while (item.parent) {
-            item = item.parent
-        }
-        return item
     }
 
     // Notify controller when this tab becomes visible
@@ -118,14 +106,117 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // Chart area
-        ChartTab {
+        // Separador visual entre tabs principales y submenú
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: "#2d3345"
+        }
+
+        // Espacio entre tabs principales y submenú
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 8
+        }
+
+        // Submenú TabBar
+        TabBar {
+            id: subMenuBar
+            Layout.fillWidth: true
+            Layout.preferredHeight: 36
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            background: Rectangle {
+                color: "transparent"
+            }
+
+            TabButton {
+                text: "Chart"
+                width: implicitWidth
+                height: 36
+                background: Rectangle {
+                    color: subMenuBar.currentIndex === 0 ? "#1a1d2e" : (parent.hovered ? "#15182a" : "transparent")
+                    border.color: subMenuBar.currentIndex === 0 ? "#3d4461" : "transparent"
+                    border.width: subMenuBar.currentIndex === 0 ? 1 : 0
+                    radius: 4
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: subMenuBar.currentIndex === 0 ? "#e6e6e6" : "#8b92b0"
+                    font.pixelSize: 13
+                    font.bold: subMenuBar.currentIndex === 0
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            TabButton {
+                text: "Fundamentals"
+                width: implicitWidth
+                height: 36
+                background: Rectangle {
+                    color: subMenuBar.currentIndex === 1 ? "#1a1d2e" : (parent.hovered ? "#15182a" : "transparent")
+                    border.color: subMenuBar.currentIndex === 1 ? "#3d4461" : "transparent"
+                    border.width: subMenuBar.currentIndex === 1 ? 1 : 0
+                    radius: 4
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: subMenuBar.currentIndex === 1 ? "#e6e6e6" : "#8b92b0"
+                    font.pixelSize: 13
+                    font.bold: subMenuBar.currentIndex === 1
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            TabButton {
+                text: "Options"
+                width: implicitWidth
+                height: 36
+                background: Rectangle {
+                    color: subMenuBar.currentIndex === 2 ? "#1a1d2e" : (parent.hovered ? "#15182a" : "transparent")
+                    border.color: subMenuBar.currentIndex === 2 ? "#3d4461" : "transparent"
+                    border.width: subMenuBar.currentIndex === 2 ? 1 : 0
+                    radius: 4
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: subMenuBar.currentIndex === 2 ? "#e6e6e6" : "#8b92b0"
+                    font.pixelSize: 13
+                    font.bold: subMenuBar.currentIndex === 2
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+        }
+
+        // Contenido del submenú
+        StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            tabId: root.tabId
-            webChannel: webChannel
-            pluginsModel: root.pluginsModel
-            selectedSymbol: root.currentSymbol
+            currentIndex: subMenuBar.currentIndex
+
+            // Chart tab
+            ChartTab {
+                tabId: root.tabId
+                webChannel: webChannel
+                pluginsModel: root.pluginsModel
+                selectedSymbol: root.currentSymbol
+            }
+
+            // Fundamentals tab
+            AnalysisTab {
+                tabId: root.tabId
+                selectedSymbol: root.currentSymbol
+                isActive: subMenuBar.currentIndex === 1
+            }
+
+            // Options tab
+            OptionsTab {
+                tabId: root.tabId
+                selectedSymbol: root.currentSymbol
+            }
         }
     }
 }

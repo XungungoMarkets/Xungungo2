@@ -23,6 +23,8 @@ class TabState:
         self.bridge: ChartBridge | None = None
         # Plugin state for this tab (what plugins are enabled and their config)
         self.plugin_state: dict | None = None
+        # Track if plugins UI was initialized for this tab
+        self.plugins_ui_initialized: bool = False
 
 class _WorkerSignals(QObject):
     done = Signal(object)
@@ -45,7 +47,7 @@ class _FetchComputeTask(QRunnable):
 
 class TickerController(QObject):
     statusChanged = Signal(str, str)  # (tab_id, message)
-    pluginsChanged = Signal(str)  # JSON list
+    pluginsChanged = Signal(str, str)  # (tab_id, JSON list)
 
     def __init__(self, datasource: DataSource, plugins: PluginManager):
         super().__init__()
@@ -100,7 +102,11 @@ class TickerController(QObject):
             # Re-push data to chart if already loaded
             if state.df_main is not None and state.bridge is not None:
                 self._push_all()
-        self.pluginsChanged.emit(self.getPlugins())
+
+        # Only emit pluginsChanged on first visit to avoid UI rebuilds
+        if not state.plugins_ui_initialized:
+            state.plugins_ui_initialized = True
+            self.pluginsChanged.emit(tab_id, self.getPlugins())
 
     @Slot(str, QObject)
     def connectBridge(self, tab_id: str, proxy: QObject):
@@ -161,7 +167,8 @@ class TickerController(QObject):
     @Slot(str, bool)
     def setPluginEnabled(self, plugin_id: str, enabled: bool):
         self.plugins.enable(plugin_id, enabled)
-        self.pluginsChanged.emit(self.getPlugins())
+        if self._current_tab_id:
+            self.pluginsChanged.emit(self._current_tab_id, self.getPlugins())
         state = self._get_current_state()
         if state.df_main is not None:
             self._recompute_and_push()
@@ -178,7 +185,8 @@ class TickerController(QObject):
         cfg["fast"] = fast
         cfg["slow"] = slow
         self.plugins.set_config(plugin_id, cfg)
-        self.pluginsChanged.emit(self.getPlugins())
+        if self._current_tab_id:
+            self.pluginsChanged.emit(self._current_tab_id, self.getPlugins())
         state = self._get_current_state()
         if state.df_main is not None and plugin_id in self.plugins.enabled_plugins():
             self._recompute_and_push()
@@ -206,7 +214,8 @@ class TickerController(QObject):
         cfg = self.plugins.get_config(plugin_id)
         cfg = self._deep_merge(cfg, patch)
         self.plugins.set_config(plugin_id, cfg)
-        self.pluginsChanged.emit(self.getPlugins())
+        if self._current_tab_id:
+            self.pluginsChanged.emit(self._current_tab_id, self.getPlugins())
         state = self._get_current_state()
         if state.df_main is not None and plugin_id in self.plugins.enabled_plugins():
             self._recompute_and_push()
@@ -216,8 +225,8 @@ class TickerController(QObject):
     def applyPreset(self, plugin_id: str, preset_id: str) -> bool:
         """Apply a preset to a plugin's configuration"""
         success = self.plugins.apply_preset(plugin_id, preset_id)
-        if success:
-            self.pluginsChanged.emit(self.getPlugins())
+        if success and self._current_tab_id:
+            self.pluginsChanged.emit(self._current_tab_id, self.getPlugins())
             state = self._get_current_state()
             if state.df_main is not None and plugin_id in self.plugins.enabled_plugins():
                 self._recompute_and_push()
@@ -234,16 +243,16 @@ class TickerController(QObject):
             return False
 
         success = self.plugins.add_custom_preset(plugin_id, preset_id, name, description, config)
-        if success:
-            self.pluginsChanged.emit(self.getPlugins())
+        if success and self._current_tab_id:
+            self.pluginsChanged.emit(self._current_tab_id, self.getPlugins())
         return success
 
     @Slot(str, str, result=bool)
     def deleteCustomPreset(self, plugin_id: str, preset_id: str) -> bool:
         """Delete a custom preset"""
         success = self.plugins.delete_custom_preset(plugin_id, preset_id)
-        if success:
-            self.pluginsChanged.emit(self.getPlugins())
+        if success and self._current_tab_id:
+            self.pluginsChanged.emit(self._current_tab_id, self.getPlugins())
         return success
 
     @Slot(str, str)

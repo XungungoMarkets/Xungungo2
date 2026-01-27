@@ -49,7 +49,8 @@ Rectangle {
     // Listen to pluginsChanged signal to update model
     Connections {
         target: tickerController
-        function onPluginsChanged(pluginsJson) {
+        function onPluginsChanged(tabId, pluginsJson) {
+            // TickerPage is legacy single-tab, always update
             parsePluginsModel(
                 pluginsJson,
                 "Plugins model updated:",

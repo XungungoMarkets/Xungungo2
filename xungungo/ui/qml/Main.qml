@@ -78,13 +78,26 @@ ApplicationWindow {
         }
     }
 
+    // Track loading states from different sources
+    property int loadingCount: 0
+
     // Global status bar API
     function setStatusText(text) {
         globalStatusBar.statusText = text
     }
 
-    function setLoading(loading) {
-        globalStatusBar.statusText = loading ? "Loading..." : "Ready"
+    function setLoading(loading, source) {
+        if (loading) {
+            loadingCount++
+            globalStatusBar.isLoading = true
+            globalStatusBar.statusText = source ? "Loading " + source + "..." : "Loading..."
+        } else {
+            loadingCount = Math.max(0, loadingCount - 1)
+            if (loadingCount === 0) {
+                globalStatusBar.isLoading = false
+                globalStatusBar.statusText = "Ready"
+            }
+        }
     }
 
     // Initialize tabs
@@ -108,6 +121,47 @@ ApplicationWindow {
             // Don't change if user is interacting with tabs
             if (tabBar.currentIndex !== index) {
                 tabBar.currentIndex = index
+            }
+        }
+    }
+
+    // Listen to analysis controller loading state
+    Connections {
+        target: analysisController
+        function onLoadingChanged(symbol, loading) {
+            win.setLoading(loading, loading ? symbol + " fundamentals" : null)
+        }
+    }
+
+    // Listen to ticker controller status - track loading per tab
+    property var loadingTabs: ({})  // Map of tabId -> bool
+    property int tickerLoadingCount: 0
+
+    Connections {
+        target: tickerController
+        function onStatusChanged(tabId, msg) {
+            var isLoading = msg.includes("Loading") || msg.includes("Cargando")
+            var wasLoading = win.loadingTabs[tabId] || false
+
+            if (isLoading && !wasLoading) {
+                // Tab started loading
+                win.loadingTabs[tabId] = true
+                win.tickerLoadingCount++
+                globalStatusBar.isLoading = true
+                globalStatusBar.statusText = msg
+            } else if (!isLoading && wasLoading) {
+                // Tab finished loading
+                win.loadingTabs[tabId] = false
+                win.tickerLoadingCount = Math.max(0, win.tickerLoadingCount - 1)
+
+                // Only show Ready when ALL loading is done
+                if (win.tickerLoadingCount === 0 && win.loadingCount === 0) {
+                    globalStatusBar.isLoading = false
+                    globalStatusBar.statusText = "Ready"
+                }
+            } else if (isLoading) {
+                // Still loading, update message
+                globalStatusBar.statusText = msg
             }
         }
     }
