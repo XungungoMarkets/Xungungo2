@@ -24,3 +24,7 @@ pip-wheel-metadata/
 *.exe
 tmpclaude-*
 nul
+
+# VS Code
+.vscode/
+*.code-workspace
