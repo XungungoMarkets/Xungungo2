@@ -18,6 +18,12 @@ Rectangle {
     property string currentSymbol: ""
     property bool isLoading: false
     property bool initialized: false
+    property bool symbolLoaded: false  // Track if symbol data has been loaded
+
+    // Realtime data properties
+    property var realtimeData: null
+    property bool isRealtimePolling: false
+    property string realtimeError: ""
 
     // Bridge proxy único para este tab
     QtObject {
@@ -70,6 +76,46 @@ Rectangle {
         }
     }
 
+    // Listen to realtime controller signals
+    Connections {
+        target: realtimeController
+
+        function onRealtimeDataReady(tabId, jsonData) {
+            if (tabId !== root.tabId) return
+            try {
+                root.realtimeData = JSON.parse(jsonData)
+                root.realtimeError = ""
+
+                // Send realtime price to chart if we have valid data
+                if (root.realtimeData && root.realtimeData.lastSalePrice) {
+                    var priceStr = root.realtimeData.lastSalePrice.replace("$", "").replace(",", "")
+                    var price = parseFloat(priceStr)
+                    if (!isNaN(price)) {
+                        var timestamp = Math.floor(Date.now() / 1000)
+                        var chartUpdate = JSON.stringify({
+                            type: "realtime_update",
+                            price: price,
+                            timestamp: timestamp
+                        })
+                        bridgeProxy.push(chartUpdate)
+                    }
+                }
+            } catch(e) {
+                console.error("Failed to parse realtime data:", e)
+            }
+        }
+
+        function onRealtimeError(tabId, error) {
+            if (tabId !== root.tabId) return
+            root.realtimeError = error
+        }
+
+        function onPollingChanged(tabId, isPolling) {
+            if (tabId !== root.tabId) return
+            root.isRealtimePolling = isPolling
+        }
+    }
+
     function parsePluginsModel(pluginsJson) {
         try {
             pluginsModel = JSON.parse(pluginsJson)
@@ -85,6 +131,36 @@ Rectangle {
     onVisibleChanged: {
         if (visible) {
             tickerController.setCurrentTab(root.tabId)
+
+            // Load symbol data on first view (lazy loading)
+            if (root.currentSymbol && !root.symbolLoaded) {
+                console.log("Lazy loading symbol for tab:", root.tabId, "symbol:", root.currentSymbol)
+                tickerController.loadSymbolForTab(root.tabId, root.currentSymbol)
+                root.symbolLoaded = true
+            }
+
+            // Start realtime polling if we have a symbol
+            if (root.currentSymbol) {
+                realtimeController.startPolling(root.tabId, root.currentSymbol)
+            }
+        } else {
+            // Stop polling when tab is hidden
+            realtimeController.stopPolling(root.tabId)
+        }
+    }
+
+    // Handle symbol changes - restart polling for new symbol
+    onCurrentSymbolChanged: {
+        // Reset realtime data and loaded state when symbol changes
+        root.realtimeData = null
+        root.realtimeError = ""
+        root.symbolLoaded = false
+
+        // Load and poll for new symbol if tab is visible
+        if (root.visible && root.currentSymbol) {
+            tickerController.loadSymbolForTab(root.tabId, root.currentSymbol)
+            root.symbolLoaded = true
+            realtimeController.startPolling(root.tabId, root.currentSymbol)
         }
     }
 
@@ -93,10 +169,17 @@ Rectangle {
         tickerController.connectBridge(root.tabId, bridgeProxy)
         parsePluginsModel(tickerController.getPlugins())
 
-        // Load initial symbol if exists (use tab-specific loader to avoid race conditions)
+        // Store initial symbol but only load if tab is visible (lazy loading)
         if (root.initialSymbol && root.initialSymbol !== "") {
             root.currentSymbol = root.initialSymbol
-            tickerController.loadSymbolForTab(root.tabId, root.initialSymbol)
+
+            // Only load immediately if this tab is already visible
+            if (root.visible) {
+                console.log("Tab visible on init, loading symbol:", root.initialSymbol)
+                tickerController.loadSymbolForTab(root.tabId, root.initialSymbol)
+                root.symbolLoaded = true
+                realtimeController.startPolling(root.tabId, root.initialSymbol)
+            }
         }
 
         root.initialized = true
@@ -189,6 +272,15 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                 }
             }
+        }
+
+        // Ticker Header with realtime data
+        TickerHeader {
+            tabId: root.tabId
+            symbol: root.currentSymbol
+            realtimeData: root.realtimeData
+            isPolling: root.isRealtimePolling
+            errorMessage: root.realtimeError
         }
 
         // Contenido del submenú

@@ -12,6 +12,7 @@ from xungungo.controllers.ticker_controller import TickerController
 from xungungo.controllers.search_controller import SearchController
 from xungungo.controllers.tab_manager import TabManager
 from xungungo.controllers.analysis_controller import AnalysisController
+from xungungo.controllers.realtime_controller import RealtimeController
 
 
 class App:
@@ -31,6 +32,7 @@ class App:
         self.ticker = TickerController(self.datasource, self.plugins)
         self.search = SearchController(self.search_client)
         self.analysis = AnalysisController()
+        self.realtime = RealtimeController()
 
         # Set context properties BEFORE loading QML
         ctx = self.engine.rootContext()
@@ -38,6 +40,7 @@ class App:
         ctx.setContextProperty("searchController", self.search)
         ctx.setContextProperty("tabManager", self.tab_manager)
         ctx.setContextProperty("analysisController", self.analysis)
+        ctx.setContextProperty("realtimeController", self.realtime)
         ctx.setContextProperty("appDebug", os.getenv("XUNGUNGO_DEBUG") == "1")
 
         # Load QML
