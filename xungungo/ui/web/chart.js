@@ -24,6 +24,8 @@ const ChartManager = (function() {
   const markerPlugins = new Map();
   let advancedRenderer = null;
   let currentSeriesDefs = [];
+  let lastCandle = null;  // Track last candle for realtime updates
+  let candleIntervalSeconds = 0;  // Interval between candles in seconds
 
   // Private utility functions
   function showOverlay(msg) {
@@ -201,6 +203,19 @@ const ChartManager = (function() {
     try {
       log("Setting", data.length, "candles");
       candleSeries.setData(data);
+
+      // Store last candle for realtime updates
+      if (data.length > 0) {
+        lastCandle = { ...data[data.length - 1] };
+        log("Last candle stored:", lastCandle);
+
+        // Calculate candle interval from last two candles
+        if (data.length >= 2) {
+          const secondLast = data[data.length - 2];
+          candleIntervalSeconds = lastCandle.time - secondLast.time;
+          log("Candle interval calculated:", candleIntervalSeconds, "seconds");
+        }
+      }
     } catch (err) {
       console.error("Error setting candles:", err);
     }
@@ -387,11 +402,76 @@ const ChartManager = (function() {
     }
   }
 
+  // Update last candle with realtime price
+  function updateRealtimePrice(price) {
+    if (!candleSeries) {
+      warn("Candle series not initialized for realtime update");
+      return;
+    }
+
+    if (!lastCandle) {
+      warn("No last candle available for realtime update");
+      return;
+    }
+
+    if (!candleIntervalSeconds || candleIntervalSeconds <= 0) {
+      warn("Candle interval not set, cannot determine current period");
+      return;
+    }
+
+    try {
+      // Get current time in seconds (UTC)
+      const nowSeconds = Math.floor(Date.now() / 1000);
+
+      // Calculate which candle period we should be in
+      // Floor the current time to the nearest interval boundary
+      const currentPeriodStart = Math.floor(nowSeconds / candleIntervalSeconds) * candleIntervalSeconds;
+
+      // Check if we need to create a new candle
+      if (currentPeriodStart > lastCandle.time) {
+        // We've moved to a new period - create a new candle
+        const newCandle = {
+          time: currentPeriodStart,
+          open: price,
+          high: price,
+          low: price,
+          close: price
+        };
+
+        candleSeries.update(newCandle);
+        lastCandle = { ...newCandle };
+
+        log("New candle created at", currentPeriodStart, "price:", price);
+      } else {
+        // Update existing candle
+        const updatedCandle = {
+          time: lastCandle.time,
+          open: lastCandle.open,
+          high: Math.max(lastCandle.high, price),
+          low: Math.min(lastCandle.low, price),
+          close: price
+        };
+
+        candleSeries.update(updatedCandle);
+
+        // Update our stored last candle
+        lastCandle.high = updatedCandle.high;
+        lastCandle.low = updatedCandle.low;
+        lastCandle.close = price;
+
+        log("Realtime price updated:", price, "candle time:", lastCandle.time);
+      }
+    } catch (err) {
+      warn("Error updating realtime price:", err.message);
+    }
+  }
+
   // Public API
   return {
     init: initChart,
     setCandles: setCandles,
     setIndicators: setIndicators,
+    updateRealtimePrice: updateRealtimePrice,
     showOverlay: showOverlay,
     hideOverlay: hideOverlay
   };
@@ -535,6 +615,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 ChartManager.setIndicators(msg.indicators, msg.seriesDefs);
+              } else if (msg.type === "realtime_update") {
+                // Realtime price update for last candle
+                if (typeof msg.price === 'number') {
+                  ChartManager.updateRealtimePrice(msg.price);
+                } else {
+                  warn("Invalid realtime_update message:", msg);
+                }
               } else {
                 warn("Unknown message type:", msg.type);
               }
