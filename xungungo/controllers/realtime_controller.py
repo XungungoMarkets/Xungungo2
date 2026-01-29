@@ -12,6 +12,7 @@ from xungungo.data.realtime import (
     RealtimeQuote,
     NasdaqRealtimeSource,
     YahooRealtimeSource,
+    BitMEXRealtimeSource,
 )
 
 
@@ -42,8 +43,9 @@ class RealtimeController(QObject):
 
         # Data sources (in priority order)
         self._sources: list[RealtimeDataSource] = [
-            NasdaqRealtimeSource(),
-            YahooRealtimeSource(),
+            BitMEXRealtimeSource(),  # Crypto first (specific)
+            NasdaqRealtimeSource(),  # US stocks
+            YahooRealtimeSource(),   # Fallback for everything else
         ]
 
         # Per-tab polling state
@@ -266,6 +268,7 @@ class RealtimeController(QObject):
     def _handle_success(self, tabId: str, symbol: str, quote: RealtimeQuote):
         """Handle successful quote fetch."""
         result = quote.to_dict()
+        json_result = json.dumps(result)
 
         # Cache the data
         self._cached_data[symbol] = result
@@ -274,14 +277,21 @@ class RealtimeController(QObject):
         self._consecutive_errors = 0
         self._current_backoff_ms = 0
 
-        # Emit success on main thread
-        QMetaObject.invokeMethod(
-            self,
-            "_emit_success",
-            Qt.QueuedConnection,
-            Q_ARG(str, tabId),
-            Q_ARG(str, json.dumps(result))
-        )
+        # Find ALL tabs that are polling this symbol and emit to each
+        tabs_to_notify = [
+            tid for tid, polling in self._polling_tabs.items()
+            if polling and self._current_symbols.get(tid) == symbol
+        ]
+
+        # Emit success on main thread for ALL tabs with this symbol
+        for tid in tabs_to_notify:
+            QMetaObject.invokeMethod(
+                self,
+                "_emit_success",
+                Qt.QueuedConnection,
+                Q_ARG(str, tid),
+                Q_ARG(str, json_result)
+            )
 
         # Also emit price update for chart
         try:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Optional
 
 import yfinance as yf
 
@@ -18,7 +17,6 @@ class YahooRealtimeSource(RealtimeDataSource):
 
     def __init__(self):
         self.log = get_logger("xungungo.realtime.yahoo")
-        self._ticker_cache: dict[str, yf.Ticker] = {}
 
     @property
     def name(self) -> str:
@@ -39,13 +37,10 @@ class YahooRealtimeSource(RealtimeDataSource):
         self.log.debug(f"Fetching Yahoo quote for {symbol}")
 
         try:
-            # Get or create ticker object
-            if symbol not in self._ticker_cache:
-                self._ticker_cache[symbol] = yf.Ticker(symbol)
+            # Create fresh ticker object each time to avoid stale cached data
+            ticker = yf.Ticker(symbol)
 
-            ticker = self._ticker_cache[symbol]
-
-            # Get fast info (cached, lightweight)
+            # Get fast info
             info = ticker.fast_info
 
             price = float(info.last_price) if info.last_price else 0.0
@@ -99,6 +94,3 @@ class YahooRealtimeSource(RealtimeDataSource):
         else:
             return ""
 
-    def clear_cache(self):
-        """Clear the ticker cache."""
-        self._ticker_cache.clear()

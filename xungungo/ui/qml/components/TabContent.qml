@@ -81,7 +81,12 @@ Rectangle {
         target: realtimeController
 
         function onRealtimeDataReady(tabId, jsonData) {
+            // Debug: log all incoming realtime data
+            if (appDebug) {
+                console.log("onRealtimeDataReady received - incoming tabId:", tabId, "my tabId:", root.tabId)
+            }
             if (tabId !== root.tabId) return
+
             try {
                 root.realtimeData = JSON.parse(jsonData)
                 root.realtimeError = ""
@@ -99,6 +104,8 @@ Rectangle {
                         })
                         bridgeProxy.push(chartUpdate)
                     }
+                } else if (appDebug) {
+                    console.log("Realtime data received but no lastSalePrice for tab:", root.tabId)
                 }
             } catch(e) {
                 console.error("Failed to parse realtime data:", e)
@@ -156,16 +163,37 @@ Rectangle {
         root.realtimeError = ""
         root.symbolLoaded = false
 
-        // Load and poll for new symbol if tab is visible
-        if (root.visible && root.currentSymbol) {
+        // Only load if already initialized (avoid double-load during Component.onCompleted)
+        // During initialization, Component.onCompleted handles the initial load
+        if (root.initialized && root.visible && root.currentSymbol) {
             tickerController.loadSymbolForTab(root.tabId, root.currentSymbol)
             root.symbolLoaded = true
             realtimeController.startPolling(root.tabId, root.currentSymbol)
         }
     }
 
+    // Timer to ensure polling and current tab are set after QML is fully initialized
+    // This handles the race condition where the initial tab is already visible
+    // but onVisibleChanged doesn't fire because visible was never false
+    Timer {
+        id: initPollingTimer
+        interval: 100
+        repeat: false
+        onTriggered: {
+            if (root.visible && root.currentSymbol) {
+                // Ensure this tab is set as current for interval/period changes to work
+                tickerController.setCurrentTab(root.tabId)
+
+                if (!root.isRealtimePolling) {
+                    console.log("InitPollingTimer: Starting polling for tab:", root.tabId, "symbol:", root.currentSymbol)
+                    realtimeController.startPolling(root.tabId, root.currentSymbol)
+                }
+            }
+        }
+    }
+
     Component.onCompleted: {
-        console.log("TabContent completed for tab:", root.tabId, "objectName:", bridgeProxy.objectName, "initialSymbol:", root.initialSymbol)
+        console.log("TabContent completed for tab:", root.tabId, "objectName:", bridgeProxy.objectName, "initialSymbol:", root.initialSymbol, "visible:", root.visible)
         tickerController.connectBridge(root.tabId, bridgeProxy)
         parsePluginsModel(tickerController.getPlugins())
 
@@ -175,6 +203,10 @@ Rectangle {
 
             // Only load immediately if this tab is already visible
             if (root.visible) {
+                // CRITICAL: Set current tab so interval/period changes work correctly
+                // onVisibleChanged won't fire for tabs that are already visible on init
+                tickerController.setCurrentTab(root.tabId)
+
                 console.log("Tab visible on init, loading symbol:", root.initialSymbol)
                 tickerController.loadSymbolForTab(root.tabId, root.initialSymbol)
                 root.symbolLoaded = true
@@ -183,6 +215,15 @@ Rectangle {
         }
 
         root.initialized = true
+
+        // Start timer to ensure polling is initiated even if onVisibleChanged didn't fire
+        initPollingTimer.start()
+    }
+
+    Component.onDestruction: {
+        // CRITICAL: Stop polling when tab is destroyed to prevent phantom polling
+        console.log("TabContent destroyed for tab:", root.tabId)
+        realtimeController.stopPolling(root.tabId)
     }
 
     ColumnLayout {
