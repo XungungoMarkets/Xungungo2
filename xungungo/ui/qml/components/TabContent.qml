@@ -97,10 +97,12 @@ Rectangle {
                     var price = parseFloat(priceStr)
                     if (!isNaN(price)) {
                         var timestamp = Math.floor(Date.now() / 1000)
+                        var marketStatus = root.realtimeData.marketStatus || ""
                         var chartUpdate = JSON.stringify({
                             type: "realtime_update",
                             price: price,
-                            timestamp: timestamp
+                            timestamp: timestamp,
+                            marketStatus: marketStatus
                         })
                         bridgeProxy.push(chartUpdate)
                     }
@@ -139,11 +141,10 @@ Rectangle {
         if (visible) {
             tickerController.setCurrentTab(root.tabId)
 
-            // Load symbol data on first view (lazy loading)
+            // Load symbol data on first view (lazy loading) - use debounced load
             if (root.currentSymbol && !root.symbolLoaded) {
                 console.log("Lazy loading symbol for tab:", root.tabId, "symbol:", root.currentSymbol)
-                tickerController.loadSymbolForTab(root.tabId, root.currentSymbol)
-                root.symbolLoaded = true
+                requestSymbolLoad(root.currentSymbol)
             }
 
             // Start realtime polling if we have a symbol
@@ -163,11 +164,13 @@ Rectangle {
         root.realtimeError = ""
         root.symbolLoaded = false
 
+        // Cancel any pending debounced load
+        loadDebounceTimer.stop()
+
         // Only load if already initialized (avoid double-load during Component.onCompleted)
         // During initialization, Component.onCompleted handles the initial load
         if (root.initialized && root.visible && root.currentSymbol) {
-            tickerController.loadSymbolForTab(root.tabId, root.currentSymbol)
-            root.symbolLoaded = true
+            requestSymbolLoad(root.currentSymbol)
             realtimeController.startPolling(root.tabId, root.currentSymbol)
         }
     }
@@ -192,6 +195,30 @@ Rectangle {
         }
     }
 
+    // Debounce timer to prevent multiple rapid symbol loads
+    Timer {
+        id: loadDebounceTimer
+        interval: 50
+        repeat: false
+        property string pendingSymbol: ""
+        onTriggered: {
+            if (pendingSymbol && root.tabId) {
+                console.log("LoadDebounceTimer: Loading symbol for tab:", root.tabId, "symbol:", pendingSymbol)
+                tickerController.loadSymbolForTab(root.tabId, pendingSymbol)
+                root.symbolLoaded = true
+            }
+        }
+    }
+
+    // Centralized function to request symbol load with debouncing
+    function requestSymbolLoad(symbol) {
+        if (!symbol || !root.tabId) return
+        if (root.symbolLoaded && symbol === root.currentSymbol) return
+
+        loadDebounceTimer.pendingSymbol = symbol
+        loadDebounceTimer.restart()
+    }
+
     Component.onCompleted: {
         console.log("TabContent completed for tab:", root.tabId, "objectName:", bridgeProxy.objectName, "initialSymbol:", root.initialSymbol, "visible:", root.visible)
         tickerController.connectBridge(root.tabId, bridgeProxy)
@@ -208,8 +235,7 @@ Rectangle {
                 tickerController.setCurrentTab(root.tabId)
 
                 console.log("Tab visible on init, loading symbol:", root.initialSymbol)
-                tickerController.loadSymbolForTab(root.tabId, root.initialSymbol)
-                root.symbolLoaded = true
+                requestSymbolLoad(root.initialSymbol)
                 realtimeController.startPolling(root.tabId, root.initialSymbol)
             }
         }

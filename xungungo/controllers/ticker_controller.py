@@ -25,6 +25,10 @@ class TabState:
         self.plugin_state: dict | None = None
         # Track if plugins UI was initialized for this tab
         self.plugins_ui_initialized: bool = False
+        # Track if bridge signals are connected to avoid duplicates
+        self.bridge_connected: bool = False
+        # Track pending load job to cancel duplicates
+        self.pending_load_id: int = 0
 
 class _WorkerSignals(QObject):
     done = Signal(object)
@@ -114,18 +118,26 @@ class TickerController(QObject):
         if tab_id not in self._tab_states:
             self._tab_states[tab_id] = TabState()
 
+        state = self._tab_states[tab_id]
+
         # Crear bridge para este tab si no existe
-        if self._tab_states[tab_id].bridge is None:
-            self._tab_states[tab_id].bridge = ChartBridge(parent=self)
-            self.log.info(f"Bridge created for tab: {tab_id}, bridge_id={id(self._tab_states[tab_id].bridge)}")
+        if state.bridge is None:
+            state.bridge = ChartBridge(parent=self)
+            self.log.info(f"Bridge created for tab: {tab_id}, bridge_id={id(state.bridge)}")
+
+        # Avoid duplicate signal connections
+        if state.bridge_connected:
+            self.log.debug(f"Bridge already connected for tab: {tab_id}, skipping")
+            return
 
         # Conectar bridge a proxy
-        bridge = self._tab_states[tab_id].bridge
+        bridge = state.bridge
         try:
             bridge.push.connect(proxy.push)
             # When bridge is ready, push data if already loaded
             proxy.readyRequested.connect(lambda tid=tab_id: self._on_bridge_ready(tid))
             proxy.readyRequested.connect(bridge.ready)
+            state.bridge_connected = True
             self.log.info(f"Bridge connected for tab: {tab_id}, bridge_id={id(bridge)}, proxy={proxy.objectName()}")
         except Exception as e:
             self.log.error(f"Failed to connect bridge for {tab_id}: {e}")
@@ -370,6 +382,10 @@ class TickerController(QObject):
         if not state.symbol:
             return
 
+        # Increment load ID to invalidate any pending jobs for this tab
+        state.pending_load_id += 1
+        current_load_id = state.pending_load_id
+
         # CRITICAL: Capture values as local variables to avoid closure issues
         captured_symbol = str(state.symbol)  # Force copy
         captured_tab_id = str(tab_id)  # Force copy
@@ -382,17 +398,17 @@ class TickerController(QObject):
         # Use tab's plugin state, or get current global state if none
         plugin_state_snapshot = state.plugin_state.copy() if state.plugin_state else self.plugins.get_state_snapshot()
 
-        self.log.info(f"_reload_symbol_for_tab: tab={captured_tab_id}, symbol={captured_symbol}, interval={captured_interval}, period={captured_period}")
+        self.log.info(f"_reload_symbol_for_tab: tab={captured_tab_id}, symbol={captured_symbol}, interval={captured_interval}, period={captured_period}, load_id={current_load_id}")
         self.statusChanged.emit(tab_id, f"Cargando {captured_symbol} ({captured_interval}/{captured_period})...")
 
         def job():
             # Log what we're actually fetching inside the job
-            self.log.info(f"JOB EXECUTING: tab={captured_tab_id}, symbol={captured_symbol}")
+            self.log.info(f"JOB EXECUTING: tab={captured_tab_id}, symbol={captured_symbol}, load_id={current_load_id}")
             df = self.datasource.fetch_ohlcv(captured_symbol, interval=captured_interval, period=captured_period)
-            self.log.info(f"JOB FETCHED: tab={captured_tab_id}, symbol={captured_symbol}, rows={len(df)}, first_close={df['close'].iloc[0] if len(df) > 0 else 'N/A'}")
+            self.log.info(f"JOB FETCHED: tab={captured_tab_id}, symbol={captured_symbol}, rows={len(df)}, first_close={df['close'].iloc[0] if len(df) > 0 else 'N/A'}, load_id={current_load_id}")
             # Use state_snapshot directly (thread-safe, no global state manipulation)
             df2 = self.plugins.compute_all(df, state_snapshot=plugin_state_snapshot)
-            return df2
+            return (df2, current_load_id)
 
         task = _FetchComputeTask(job, captured_tab_id, plugin_state_snapshot)
         task.signals.done.connect(self._on_loaded)
@@ -405,15 +421,29 @@ class TickerController(QObject):
             self._reload_symbol_for_tab(self._current_tab_id)
 
     def _on_loaded(self, result):
-        """Called when data fetch completes. Result is (df, tab_id)."""
-        df, tab_id = result
-        self.log.info(f"_on_loaded: tab_id={tab_id}, rows={len(df)}")
+        """Called when data fetch completes. Result is ((df, load_id), tab_id)."""
+        inner_result, tab_id = result
+
+        # Handle both old format (df) and new format ((df, load_id))
+        if isinstance(inner_result, tuple) and len(inner_result) == 2:
+            df, load_id = inner_result
+        else:
+            df = inner_result
+            load_id = None
+
+        self.log.info(f"_on_loaded: tab_id={tab_id}, rows={len(df)}, load_id={load_id}")
 
         if tab_id not in self._tab_states:
             self.log.warning(f"Received data for unknown tab: {tab_id}")
             return
 
         state = self._tab_states[tab_id]
+
+        # Check if this load is still valid (not superseded by a newer load)
+        if load_id is not None and load_id != state.pending_load_id:
+            self.log.info(f"_on_loaded: IGNORING stale result for tab={tab_id}, load_id={load_id}, current={state.pending_load_id}")
+            return
+
         state.df_main = df
 
         self.log.info(f"_on_loaded: tab={tab_id}, symbol={state.symbol}, bridge_id={id(state.bridge) if state.bridge else None}")

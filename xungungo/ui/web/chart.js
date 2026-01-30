@@ -13,6 +13,10 @@ const warn = (...args) => {
 };
 const QWEBCHANNEL_INIT_DELAY_MS = 100;
 
+// Global flags to prevent multiple initializations
+let qwebchannelInitialized = false;
+let qwebchannelInitializing = false;
+
 // Chart Manager Module - Encapsulates all chart state and functionality
 const ChartManager = (function() {
   'use strict';
@@ -26,6 +30,11 @@ const ChartManager = (function() {
   let currentSeriesDefs = [];
   let lastCandle = null;  // Track last candle for realtime updates
   let candleIntervalSeconds = 0;  // Interval between candles in seconds
+  let extendedHoursPriceLine = null;  // Price line for post/pre market
+  let extendedHoursLabelPrimitive = null;  // Label primitive for post/pre market
+  let currentMarketStatus = "";  // Current market status
+  let lastExtendedHoursPrice = null;  // Track last price to avoid unnecessary updates
+  let lastExtendedHoursColor = null;  // Track last color to detect status changes
 
   // Private utility functions
   function showOverlay(msg) {
@@ -202,6 +211,23 @@ const ChartManager = (function() {
 
     try {
       log("Setting", data.length, "candles");
+
+      // Clear extended hours line and label when loading new data
+      if (extendedHoursPriceLine) {
+        try {
+          candleSeries.removePriceLine(extendedHoursPriceLine);
+        } catch (e) {
+          // Ignore
+        }
+        extendedHoursPriceLine = null;
+      }
+      if (extendedHoursLabelPrimitive) {
+        extendedHoursLabelPrimitive.setEnabled(false);
+      }
+      currentMarketStatus = "";
+      lastExtendedHoursPrice = null;
+      lastExtendedHoursColor = null;
+
       candleSeries.setData(data);
 
       // Store last candle for realtime updates
@@ -402,10 +428,125 @@ const ChartManager = (function() {
     }
   }
 
+  // Update or remove extended hours price line (post/pre market)
+  function updateExtendedHoursLine(price, marketStatus) {
+    if (!candleSeries) return;
+
+    // Check for extended hours (handle both formats: "After Hours" and "After-Hours")
+    const isPostMarket = marketStatus === "After Hours" || marketStatus === "After-Hours";
+    const isPreMarket = marketStatus === "Pre-Market" || marketStatus === "Pre Market";
+    const isExtendedHours = isPostMarket || isPreMarket;
+
+    // Determine label based on market status
+    let labelPrefix = "";
+    let lineColor = "#2962FF";  // Blue color like TradingView
+
+    if (isPostMarket) {
+      labelPrefix = "Post";
+    } else if (isPreMarket) {
+      labelPrefix = "Pre";
+      lineColor = "#FF9800";  // Orange for pre-market
+    }
+
+    // Remove existing line and label if market is open or closed (not extended hours)
+    if (!isExtendedHours) {
+      if (extendedHoursPriceLine) {
+        try {
+          candleSeries.removePriceLine(extendedHoursPriceLine);
+        } catch (e) {
+          // Line may not exist
+        }
+        extendedHoursPriceLine = null;
+        lastExtendedHoursPrice = null;
+        lastExtendedHoursColor = null;
+      }
+      if (extendedHoursLabelPrimitive) {
+        extendedHoursLabelPrimitive.setEnabled(false);
+      }
+      return;
+    }
+
+    // Optimization: Skip update if price hasn't changed significantly (< $0.01)
+    const priceThreshold = 0.01;
+    const colorChanged = lastExtendedHoursColor !== lineColor;
+    const priceChanged = lastExtendedHoursPrice === null ||
+                         Math.abs(price - lastExtendedHoursPrice) >= priceThreshold;
+
+    if (!priceChanged && !colorChanged && extendedHoursPriceLine && extendedHoursLabelPrimitive) {
+      return; // No significant change, skip update
+    }
+
+    // Format price for display
+    const formattedPrice = price.toFixed(2);
+    const axisLabel = `${labelPrefix} ${formattedPrice}`;
+
+    try {
+      // Only recreate price line if color changed or line doesn't exist
+      if (colorChanged || !extendedHoursPriceLine) {
+        if (extendedHoursPriceLine) {
+          try {
+            candleSeries.removePriceLine(extendedHoursPriceLine);
+          } catch (e) {
+            // Ignore
+          }
+        }
+        extendedHoursPriceLine = candleSeries.createPriceLine({
+          price: price,
+          color: lineColor,
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          lineVisible: true,
+          axisLabelVisible: false,
+        });
+      } else {
+        // Just update the price on existing line
+        extendedHoursPriceLine.applyOptions({ price: price });
+      }
+
+      // Create primitive if needed
+      if (!extendedHoursLabelPrimitive && typeof window.PriceAxisLabelPrimitive === "function") {
+        extendedHoursLabelPrimitive = new window.PriceAxisLabelPrimitive();
+        candleSeries.attachPrimitive(extendedHoursLabelPrimitive);
+      }
+
+      // Update primitive
+      if (extendedHoursLabelPrimitive) {
+        extendedHoursLabelPrimitive.setEnabled(true);
+        extendedHoursLabelPrimitive.setPrice(price);
+        extendedHoursLabelPrimitive.setText(axisLabel);
+        if (colorChanged) {
+          extendedHoursLabelPrimitive.setColors(lineColor, "#FFFFFF");
+        }
+      }
+
+      // Track last values
+      lastExtendedHoursPrice = price;
+      lastExtendedHoursColor = lineColor;
+
+    } catch (err) {
+      warn("Error updating extended hours price line:", err.message);
+    }
+  }
+
   // Update last candle with realtime price
-  function updateRealtimePrice(price) {
+  function updateRealtimePrice(price, marketStatus) {
     if (!candleSeries) {
       warn("Candle series not initialized for realtime update");
+      return;
+    }
+
+    // Update market status
+    currentMarketStatus = marketStatus || "";
+
+    // Always update extended hours line
+    updateExtendedHoursLine(price, currentMarketStatus);
+
+    // Only update candles during regular market hours
+    const isExtendedHours = currentMarketStatus === "After Hours" || currentMarketStatus === "After-Hours" ||
+                            currentMarketStatus === "Pre-Market" || currentMarketStatus === "Pre Market";
+
+    if (isExtendedHours) {
+      log("Extended hours - showing price line only, not updating candle");
       return;
     }
 
@@ -496,11 +637,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
   log("=== INITIALIZING QWEBCHANNEL ===");
 
+  // Prevent multiple initializations
+  if (qwebchannelInitialized || qwebchannelInitializing) {
+    log("QWebChannel already initialized or initializing, skipping");
+    return;
+  }
+  qwebchannelInitializing = true;
+
   // Use constant from ChartManager module
   setTimeout(function () {
+    // Double-check in case of race condition
+    if (qwebchannelInitialized) {
+      log("QWebChannel already initialized during delay, skipping");
+      qwebchannelInitializing = false;
+      return;
+    }
+
     log("Attempting QWebChannel initialization...");
 
     new QWebChannel(qt.webChannelTransport, function (channel) {
+      // Mark as initialized immediately to prevent duplicate callbacks
+      if (qwebchannelInitialized) {
+        log("QWebChannel callback invoked but already initialized, ignoring");
+        return;
+      }
+      qwebchannelInitialized = true;
+      qwebchannelInitializing = false;
       log("QWebChannel callback invoked");
       log("Channel:", channel);
       log("Channel.objects:", channel.objects);
@@ -618,7 +780,7 @@ document.addEventListener("DOMContentLoaded", () => {
               } else if (msg.type === "realtime_update") {
                 // Realtime price update for last candle
                 if (typeof msg.price === 'number') {
-                  ChartManager.updateRealtimePrice(msg.price);
+                  ChartManager.updateRealtimePrice(msg.price, msg.marketStatus || "");
                 } else {
                   warn("Invalid realtime_update message:", msg);
                 }
