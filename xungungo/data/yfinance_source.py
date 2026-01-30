@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import OrderedDict
 import threading
 import time
 import pandas as pd
@@ -22,6 +23,10 @@ class YFinanceDataSource(DataSource):
     """
     # Cache TTL in seconds (1 day)
     CACHE_TTL = 86400
+
+    # Cache size limit (LRU eviction when exceeded)
+    # Limits memory usage to ~100 DataFrames max
+    MAX_CACHE_SIZE = 100
 
     # Retry configuration
     MAX_RETRIES = 3
@@ -57,7 +62,7 @@ class YFinanceDataSource(DataSource):
 
     def __init__(self):
         self.log = get_logger("xungungo.yfinance")
-        self._cache = {}  # Format: {cache_key: (dataframe, timestamp)}
+        self._cache: OrderedDict[str, tuple] = OrderedDict()  # {cache_key: (dataframe, timestamp)}
 
     def normalize_interval_period(self, interval: str, period: str) -> tuple[str, str]:
         """Clamp period down if it exceeds the interval's maximum."""
@@ -162,6 +167,8 @@ class YFinanceDataSource(DataSource):
 
             if age < self.CACHE_TTL:
                 self.log.info(f"Cache hit for {symbol} (age: {age:.0f}s)")
+                # Move to end (mark as recently used)
+                self._cache.move_to_end(cache_key)
                 return df.copy()
             else:
                 self.log.info(f"Cache expired for {symbol} (age: {age:.0f}s)")
@@ -186,8 +193,15 @@ class YFinanceDataSource(DataSource):
                 if df is None or df.empty:
                     raise ValueError(f"No data returned for symbol: {symbol}")
 
-                # Normalize and cache
+                # Normalize and cache with LRU eviction
                 normalized = normalize_yfinance(df)
+
+                # Evict oldest entries if cache exceeds limit
+                while len(self._cache) >= self.MAX_CACHE_SIZE:
+                    oldest_key = next(iter(self._cache))
+                    self.log.debug(f"Evicting cache entry: {oldest_key}")
+                    del self._cache[oldest_key]
+
                 self._cache[cache_key] = (normalized.copy(), time.time())
 
                 self.log.info(f"Successfully fetched {len(normalized)} rows for {symbol}")

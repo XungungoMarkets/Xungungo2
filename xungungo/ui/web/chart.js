@@ -35,6 +35,7 @@ const ChartManager = (function() {
   let currentMarketStatus = "";  // Current market status
   let lastExtendedHoursPrice = null;  // Track last price to avoid unnecessary updates
   let lastExtendedHoursColor = null;  // Track last color to detect status changes
+  let resizeListener = null;  // Track resize listener to prevent leaks
 
   // Private utility functions
   function showOverlay(msg) {
@@ -103,11 +104,18 @@ const ChartManager = (function() {
         warn("AdvancedRenderer no disponible. ¿Cargaste advanced_renderer.js?");
       }
 
-      window.addEventListener("resize", () => {
+      // Remove previous resize listener to prevent memory leaks
+      if (resizeListener) {
+        window.removeEventListener("resize", resizeListener);
+      }
+
+      // Create and store new resize listener
+      resizeListener = () => {
         if (chart && el) {
           chart.resize(el.clientWidth, el.clientHeight);
         }
-      });
+      };
+      window.addEventListener("resize", resizeListener);
 
       log("Chart initialized successfully!");
       hideOverlay();

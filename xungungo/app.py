@@ -34,6 +34,10 @@ class App:
         self.analysis = AnalysisController()
         self.realtime = RealtimeController()
 
+        # Connect tab close signal for cleanup (prevents memory leaks)
+        self.tab_manager.tabClosed.connect(self.ticker.cleanupTab)
+        self.tab_manager.tabClosed.connect(self.realtime.stopPolling)
+
         # Set context properties BEFORE loading QML
         ctx = self.engine.rootContext()
         ctx.setContextProperty("tickerController", self.ticker)

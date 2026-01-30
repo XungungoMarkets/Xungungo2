@@ -11,6 +11,7 @@ class TabManager(QObject):
 
     tabsChanged = Signal(str)  # JSON: [{id, title}, ...]
     currentTabIndexChanged = Signal(int)
+    tabClosed = Signal(str)  # Emits tab_id when a tab is closed (for cleanup)
 
     def __init__(self):
         super().__init__()
@@ -76,7 +77,11 @@ class TabManager(QObject):
 
         if 0 <= index < len(self._tabs):
             removed_tab = self._tabs.pop(index)
-            self.log.info(f"Closed tab at index {index}: {removed_tab['id']}")
+            removed_tab_id = removed_tab['id']
+            self.log.info(f"Closed tab at index {index}: {removed_tab_id}")
+
+            # Emit tabClosed signal for cleanup (before adjusting index)
+            self.tabClosed.emit(removed_tab_id)
 
             # Ajustar índice actual si es necesario
             if self._current_index >= len(self._tabs):

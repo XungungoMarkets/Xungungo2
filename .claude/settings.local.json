@@ -11,7 +11,9 @@
       "Bash(ls:*)",
       "Bash(taskkill:*)",
       "Bash(python -m py_compile:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)"
     ]
   }
 }

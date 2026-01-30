@@ -677,3 +677,40 @@ class TickerController(QObject):
             "interval": state.interval,
             "period": state.period
         })
+
+    @Slot(str)
+    def cleanupTab(self, tab_id: str):
+        """
+        Clean up resources when a tab is closed.
+        This prevents memory leaks from accumulated tab states.
+        """
+        if tab_id not in self._tab_states:
+            self.log.debug(f"cleanupTab: tab {tab_id} not found in states")
+            return
+
+        state = self._tab_states[tab_id]
+        self.log.info(f"Cleaning up resources for tab: {tab_id}")
+
+        # Save state for the ticker before cleanup (if there's data)
+        if state.symbol:
+            self._save_state_for_tab(tab_id)
+
+        # Clear DataFrame reference to free memory
+        if state.df_main is not None:
+            state.df_main = None
+
+        # Disconnect bridge signals to prevent memory leaks
+        if state.bridge is not None:
+            try:
+                state.bridge.push.disconnect()
+            except (RuntimeError, TypeError):
+                # Signal might not be connected or already disconnected
+                pass
+            state.bridge = None
+
+        # Clear plugin state
+        state.plugin_state = None
+
+        # Remove from tab states dict
+        del self._tab_states[tab_id]
+        self.log.info(f"Tab {tab_id} resources cleaned up successfully")

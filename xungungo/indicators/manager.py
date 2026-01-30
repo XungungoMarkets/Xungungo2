@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import OrderedDict
 import importlib
 import inspect
 import pkgutil
@@ -12,13 +13,16 @@ from .base import IndicatorPlugin
 
 
 class PluginManager:
+    # Maximum number of tickers to store chart state for (LRU eviction)
+    MAX_CHART_STATE_SIZE = 500
+
     def __init__(self):
         self._plugins: dict[str, IndicatorPlugin] = {}
         self._enabled: dict[str, bool] = {}
         self._configs: dict[str, dict[str, Any]] = {}
         self._current_preset_id: dict[str, str] = {}
         self._custom_presets: dict[str, dict[str, dict[str, Any]]] = {}  # plugin_id -> {preset_id: preset_data}
-        self._chart_state: dict[str, dict[str, Any]] = {}  # ticker -> chart state (timeframe + indicators)
+        self._chart_state: OrderedDict[str, dict[str, Any]] = OrderedDict()  # ticker -> chart state (LRU)
         self.log = get_logger("xungungo.plugins")
 
         # Autodiscovery de plugins
@@ -347,11 +351,13 @@ class PluginManager:
 
         try:
             with open(state_file, "r", encoding="utf-8") as f:
-                self._chart_state = json.load(f)
-            self.log.info(f"Loaded chart state from {state_file}")
+                loaded_state = json.load(f)
+            # Convert to OrderedDict for LRU tracking
+            self._chart_state = OrderedDict(loaded_state)
+            self.log.info(f"Loaded chart state for {len(self._chart_state)} tickers from {state_file}")
         except Exception as e:
             self.log.error(f"Failed to load chart state: {e}")
-            self._chart_state = {}
+            self._chart_state = OrderedDict()
 
     def _save_chart_state(self) -> None:
         """Save chart state to file."""
@@ -386,11 +392,21 @@ class PluginManager:
                 "config": self._configs.get(pid, {}).copy()
             }
 
+        # Move to end if exists (mark as recently used)
+        if ticker in self._chart_state:
+            self._chart_state.move_to_end(ticker)
+
         self._chart_state[ticker] = {
             "interval": interval,
             "period": period,
             "indicators": indicators_state
         }
+
+        # Evict oldest entries if exceeds limit
+        while len(self._chart_state) > self.MAX_CHART_STATE_SIZE:
+            oldest_ticker = next(iter(self._chart_state))
+            self.log.debug(f"Evicting chart state for: {oldest_ticker}")
+            del self._chart_state[oldest_ticker]
 
         self._save_chart_state()
         self.log.debug(f"Saved chart state for {ticker}")
@@ -405,7 +421,11 @@ class PluginManager:
         Returns:
             Dict with interval, period, and indicators state, or None if not found
         """
-        return self._chart_state.get(ticker)
+        if ticker in self._chart_state:
+            # Move to end (mark as recently used)
+            self._chart_state.move_to_end(ticker)
+            return self._chart_state[ticker]
+        return None
 
     def apply_chart_state(self, state: dict[str, Any]) -> None:
         """

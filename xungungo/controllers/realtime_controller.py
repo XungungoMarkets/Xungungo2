@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import OrderedDict
 import json
 import random
 import threading
@@ -37,6 +38,9 @@ class RealtimeController(QObject):
     MAX_BACKOFF_MS = 300000  # 5 minutes max backoff
     BACKOFF_MULTIPLIER = 2.0
 
+    # Cache size limits (LRU eviction when exceeded)
+    MAX_CACHE_SIZE = 200  # Max symbols in cache
+
     def __init__(self):
         super().__init__()
         self.log = get_logger("xungungo.realtime")
@@ -50,9 +54,9 @@ class RealtimeController(QObject):
 
         # Per-tab polling state
         self._polling_tabs: dict[str, bool] = {}
-        self._cached_data: dict[str, dict] = {}  # symbol -> last known data
+        self._cached_data: OrderedDict[str, dict] = OrderedDict()  # symbol -> last known data (LRU)
         self._current_symbols: dict[str, str] = {}  # tabId -> symbol
-        self._symbol_sources: dict[str, str] = {}  # symbol -> source name that works
+        self._symbol_sources: OrderedDict[str, str] = OrderedDict()  # symbol -> source name (LRU)
 
         # Rate limiting and backoff state
         self._consecutive_errors: int = 0
@@ -222,7 +226,9 @@ class RealtimeController(QObject):
                 self.log.debug(f"Trying {source.name} for {symbol}")
                 quote = source.fetch_quote(symbol)
 
-                # Remember which source worked
+                # Remember which source worked (LRU update)
+                if symbol in self._symbol_sources:
+                    self._symbol_sources.move_to_end(symbol)
                 self._symbol_sources[symbol] = source.name
                 self.log.debug(f"Successfully fetched {symbol} from {source.name}")
                 break
@@ -270,8 +276,18 @@ class RealtimeController(QObject):
         result = quote.to_dict()
         json_result = json.dumps(result)
 
-        # Cache the data
+        # Cache the data with LRU eviction
+        # Move to end if exists (mark as recently used)
+        if symbol in self._cached_data:
+            self._cached_data.move_to_end(symbol)
         self._cached_data[symbol] = result
+
+        # Evict oldest entries if cache exceeds limit
+        while len(self._cached_data) > self.MAX_CACHE_SIZE:
+            oldest_symbol = next(iter(self._cached_data))
+            del self._cached_data[oldest_symbol]
+            # Also clean up symbol_sources for evicted symbol
+            self._symbol_sources.pop(oldest_symbol, None)
 
         # Success - reset error tracking
         self._consecutive_errors = 0
@@ -379,3 +395,33 @@ class RealtimeController(QObject):
     def getSourceForSymbol(self, symbol: str) -> str:
         """Get the name of the data source being used for a symbol."""
         return self._symbol_sources.get(symbol.upper().strip(), "")
+
+    @Slot()
+    def cleanup(self):
+        """
+        Clean up resources on application shutdown.
+        Stops the timer and clears all state to prevent memory leaks.
+        """
+        self.log.info("RealtimeController cleanup started")
+
+        # Stop the timer
+        if self._timer:
+            self._timer.stop()
+            try:
+                self._timer.timeout.disconnect()
+            except (RuntimeError, TypeError):
+                pass  # Signal might not be connected
+
+        # Stop all polling
+        self._polling_tabs.clear()
+
+        # Clear caches
+        self._cached_data.clear()
+        self._symbol_sources.clear()
+        self._current_symbols.clear()
+
+        # Wait for any in-flight fetches to complete (with timeout)
+        with self._fetch_lock:
+            self._fetching.clear()
+
+        self.log.info("RealtimeController cleanup completed")
