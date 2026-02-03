@@ -28,3 +28,7 @@ nul
 # VS Code
 .vscode/
 *.code-workspace
+
+
+# Claude
+.claude/
