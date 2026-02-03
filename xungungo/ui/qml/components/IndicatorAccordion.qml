@@ -170,8 +170,12 @@ Rectangle {
                     }
                     if (fieldSchema.type === "boolean") return boolFieldComponent
                     if (fieldSchema.enum && fieldSchema.enum.length) return enumFieldComponent
+                    if ((fieldSchema.type === "integer" || fieldSchema.type === "number") && fieldSchema.format === "slider") {
+                        return sliderFieldComponent
+                    }
                     if (fieldSchema.type === "integer" || fieldSchema.type === "number") return numberFieldComponent
                     if (fieldSchema.type === "string") return textFieldComponent
+                    if (fieldSchema.type === "array") return arrayFieldComponent
                     return unsupportedFieldComponent
                 }
                 onLoaded: {
@@ -412,6 +416,175 @@ Rectangle {
                 if (appDebug) {
                     console.log("NumberField loaded:", fieldPath, "=", fieldValue, "schema:", fieldSchema ? "OK" : "NULL")
                 }
+            }
+        }
+    }
+
+    Component {
+        id: sliderFieldComponent
+
+        RowLayout {
+            id: sliderRow
+            property var fieldSchema: null
+            property string fieldPath: ""
+            property var fieldValue: null
+            property bool ready: false
+            spacing: 8
+
+            // Update slider when fieldValue changes externally
+            onFieldValueChanged: {
+                if (ready && fieldValue !== undefined && fieldValue !== null) {
+                    if (Math.abs(slider.value - fieldValue) > 0.001) {
+                        slider.value = fieldValue
+                    }
+                }
+            }
+
+            Component.onCompleted: {
+                ready = true
+            }
+
+            Slider {
+                id: slider
+                Layout.fillWidth: true
+                implicitHeight: 28
+
+                from: sliderRow.fieldSchema && sliderRow.fieldSchema.minimum !== undefined ? sliderRow.fieldSchema.minimum : 0
+                to: sliderRow.fieldSchema && sliderRow.fieldSchema.maximum !== undefined ? sliderRow.fieldSchema.maximum : 100
+                stepSize: sliderRow.fieldSchema && sliderRow.fieldSchema.type === "integer" ? 1 : (sliderRow.fieldSchema && sliderRow.fieldSchema.step ? sliderRow.fieldSchema.step : 1)
+                value: sliderRow.fieldValue !== null && sliderRow.fieldValue !== undefined ? sliderRow.fieldValue : from
+
+                onMoved: {
+                    if (!sliderRow.ready) return
+                    var v = sliderRow.fieldSchema && sliderRow.fieldSchema.type === "integer" ? Math.round(value) : value
+                    setConfigValue(sliderRow.fieldPath, v)
+                }
+
+                background: Rectangle {
+                    x: slider.leftPadding
+                    y: slider.topPadding + slider.availableHeight / 2 - height / 2
+                    implicitWidth: 200
+                    implicitHeight: 4
+                    width: slider.availableWidth
+                    height: implicitHeight
+                    radius: 2
+                    color: "#2d3345"
+
+                    Rectangle {
+                        width: slider.visualPosition * parent.width
+                        height: parent.height
+                        color: "#26a69a"
+                        radius: 2
+                    }
+                }
+
+                handle: Rectangle {
+                    x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
+                    y: slider.topPadding + slider.availableHeight / 2 - height / 2
+                    implicitWidth: 16
+                    implicitHeight: 16
+                    radius: 8
+                    color: slider.pressed ? "#2ea68f" : "#26a69a"
+                    border.color: "#1a1d2e"
+                    border.width: 2
+                }
+            }
+
+            Label {
+                text: {
+                    var v = slider.value
+                    if (sliderRow.fieldSchema && sliderRow.fieldSchema.type === "integer") {
+                        return String(Math.round(v))
+                    }
+                    return v.toFixed(2)
+                }
+                font.pixelSize: 11
+                color: "#e6e6e6"
+                Layout.preferredWidth: 50
+                horizontalAlignment: Text.AlignRight
+            }
+        }
+    }
+
+    Component {
+        id: arrayFieldComponent
+
+        TextField {
+            id: arrayField
+            property var fieldSchema: null
+            property string fieldPath: ""
+            property var fieldValue: null
+            property bool ready: false
+            implicitHeight: 28
+
+            // Convert array to comma-separated string for display
+            function arrayToString(arr) {
+                if (!arr || !Array.isArray(arr)) return ""
+                return arr.map(function(v) {
+                    if (typeof v === "number") {
+                        // Format numbers nicely (remove trailing zeros)
+                        return parseFloat(v.toFixed(6)).toString()
+                    }
+                    return String(v)
+                }).join(", ")
+            }
+
+            // Convert comma-separated string back to array
+            function stringToArray(str, itemType) {
+                if (!str || str.trim() === "") return []
+                var parts = str.split(",")
+                var result = []
+                for (var i = 0; i < parts.length; i++) {
+                    var trimmed = parts[i].trim()
+                    if (trimmed === "") continue
+
+                    if (itemType === "number" || itemType === "integer") {
+                        var num = parseFloat(trimmed)
+                        if (!isNaN(num)) {
+                            result.push(itemType === "integer" ? Math.round(num) : num)
+                        }
+                    } else if (itemType === "boolean") {
+                        result.push(trimmed.toLowerCase() === "true")
+                    } else {
+                        result.push(trimmed)
+                    }
+                }
+                return result
+            }
+
+            text: arrayToString(fieldValue)
+
+            onFieldValueChanged: {
+                if (!activeFocus && ready && fieldValue !== undefined && fieldValue !== null) {
+                    var newText = arrayToString(fieldValue)
+                    if (text !== newText) {
+                        text = newText
+                    }
+                }
+            }
+
+            onEditingFinished: {
+                if (!ready || !fieldSchema) return
+                var itemType = (fieldSchema.items && fieldSchema.items.type) ? fieldSchema.items.type : "string"
+                var arr = stringToArray(text, itemType)
+                setConfigValue(fieldPath, arr)
+                // Reformat the display
+                text = arrayToString(arr)
+            }
+
+            placeholderText: "Enter values separated by commas"
+
+            background: Rectangle {
+                color: "#1a1d2e"
+                border.color: parent.activeFocus ? "#3d4461" : "#2d3345"
+                border.width: 1
+                radius: 4
+            }
+
+            color: "#e6e6e6"
+            font.pixelSize: 11
+            Component.onCompleted: {
+                ready = true
             }
         }
     }

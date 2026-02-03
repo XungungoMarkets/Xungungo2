@@ -285,6 +285,7 @@ const ChartManager = (function() {
           const hostSeriesId = `${def.id}_host`;
           expectedSeriesIds.add(hostSeriesId);
         }
+        // fibonacci_levels uses native price lines on candleSeries, no host series needed
       }
 
       // Remove series that are no longer in the definitions
@@ -412,10 +413,10 @@ const ChartManager = (function() {
         }
       }
 
-      // 2) Aplicar renderizado avanzado (fill_between, band, horizontal_lines, etc.)
+      // 2) Aplicar renderizado avanzado (fill_between, band, horizontal_lines, fibonacci_levels, etc.)
       if (advancedRenderer) {
         const advancedDefs = currentSeriesDefs.filter(
-          (def) => def.type === "fill_between" || def.type === "band" || def.type === "horizontal_lines"
+          (def) => def.type === "fill_between" || def.type === "band" || def.type === "horizontal_lines" || def.type === "fibonacci_levels"
         );
 
         log(`Found ${advancedDefs.length} advanced series to render`);
