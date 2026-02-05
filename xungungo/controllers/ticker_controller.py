@@ -182,6 +182,8 @@ class TickerController(QObject):
         if self._current_tab_id:
             self.pluginsChanged.emit(self._current_tab_id, self.getPlugins())
         state = self._get_current_state()
+        # CRITICAL: Update tab's plugin_state before saving so changes persist
+        state.plugin_state = self.plugins.get_state_snapshot()
         if state.df_main is not None:
             self._recompute_and_push()
         self._save_current_state()
@@ -229,6 +231,8 @@ class TickerController(QObject):
         if self._current_tab_id:
             self.pluginsChanged.emit(self._current_tab_id, self.getPlugins())
         state = self._get_current_state()
+        # CRITICAL: Update tab's plugin_state before saving so changes persist
+        state.plugin_state = self.plugins.get_state_snapshot()
         if state.df_main is not None and plugin_id in self.plugins.enabled_plugins():
             self._recompute_and_push()
         self._save_current_state()
@@ -240,6 +244,8 @@ class TickerController(QObject):
         if success and self._current_tab_id:
             self.pluginsChanged.emit(self._current_tab_id, self.getPlugins())
             state = self._get_current_state()
+            # CRITICAL: Update tab's plugin_state before saving so changes persist
+            state.plugin_state = self.plugins.get_state_snapshot()
             if state.df_main is not None and plugin_id in self.plugins.enabled_plugins():
                 self._recompute_and_push()
             self._save_current_state()
@@ -305,7 +311,17 @@ class TickerController(QObject):
                 "configs": {pid: ind.get("config", {}) for pid, ind in saved_state.get("indicators", {}).items()},
                 "preset_ids": {pid: ind.get("preset_id", "") for pid, ind in saved_state.get("indicators", {}).items()}
             }
+            # Debug: log what we're restoring
+            enabled_plugins = [pid for pid, en in state.plugin_state["enabled"].items() if en]
+            self.log.info(f"Restoring state for {symbol}: enabled_plugins={enabled_plugins}")
+            # Apply restored state to global PluginManager so UI reflects it
+            self.plugins.restore_state_snapshot(state.plugin_state)
+            # Debug: verify state was applied
+            global_enabled = self.plugins.enabled_plugins()
+            self.log.info(f"After restore: global_enabled={global_enabled}")
             self.log.info(f"Restored saved state for {symbol} in tab {tab_id}")
+            # Emit pluginsChanged to update UI with restored indicators
+            self.pluginsChanged.emit(tab_id, self.getPlugins())
 
         self._reload_symbol_for_tab(tab_id)
 
@@ -613,6 +629,16 @@ class TickerController(QObject):
                     if s.get("lowerColumn"):
                         columns_needed.add(s.get("lowerColumn"))
 
+                # Fibonacci levels (multiple columns in levels array)
+                if s.get("type") == "fibonacci_levels":
+                    if s.get("columns"):
+                        for col in s.get("columns"):
+                            columns_needed.add(col)
+                    elif s.get("levels"):
+                        for level in s.get("levels"):
+                            if level.get("column"):
+                                columns_needed.add(level.get("column"))
+
         # Build data for each column
         for col in columns_needed:
             if col in df.columns:
@@ -659,6 +685,10 @@ class TickerController(QObject):
     def _save_current_state(self) -> None:
         """Save current chart state for the current ticker."""
         if self._current_tab_id:
+            # CRITICAL: Always sync plugin_state from global state before saving
+            # This ensures any changes made to PluginManager are captured
+            state = self._get_current_state()
+            state.plugin_state = self.plugins.get_state_snapshot()
             self._save_state_for_tab(self._current_tab_id)
 
     @Slot(result=str)
