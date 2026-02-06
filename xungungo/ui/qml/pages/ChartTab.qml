@@ -181,7 +181,7 @@ Item {
                         id: periodCombo
                         height: 34
                         width: 110
-                        model: ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y"]
+                        model: ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"]
 
                         background: Rectangle {
                             color: parent.hovered ? "#2d3345" : "#1a1d2e"
