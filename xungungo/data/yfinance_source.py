@@ -39,8 +39,8 @@ class YFinanceDataSource(DataSource):
         "15m": "1mo",
         "30m": "1mo",
         "1h": "2y",
-        "1d": "10y",
-        "1wk": "10y",
+        "1d": "max",
+        "1wk": "max",
     }
 
     _PERIOD_ORDER = [

@@ -13,6 +13,7 @@ from xungungo.controllers.search_controller import SearchController
 from xungungo.controllers.tab_manager import TabManager
 from xungungo.controllers.analysis_controller import AnalysisController
 from xungungo.controllers.realtime_controller import RealtimeController
+from xungungo.controllers.settings_controller import SettingsController
 
 
 class App:
@@ -27,6 +28,9 @@ class App:
 
         # Create TabManager
         self.tab_manager = TabManager()
+
+        # Create settings controller
+        self.settings = SettingsController()
 
         # Create controllers (sin bridge inicial, se crean por tab)
         self.ticker = TickerController(self.datasource, self.plugins)
@@ -45,6 +49,7 @@ class App:
         ctx.setContextProperty("tabManager", self.tab_manager)
         ctx.setContextProperty("analysisController", self.analysis)
         ctx.setContextProperty("realtimeController", self.realtime)
+        ctx.setContextProperty("settingsController", self.settings)
         ctx.setContextProperty("appDebug", os.getenv("XUNGUNGO_DEBUG") == "1")
 
         # Load QML

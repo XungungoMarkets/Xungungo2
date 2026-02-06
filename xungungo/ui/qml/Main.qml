@@ -11,6 +11,7 @@ ApplicationWindow {
     width: 1300
     height: 800
     title: "Xungungo"
+    flags: Qt.FramelessWindowHint | Qt.Window
 
     // Tabs model - use ListModel to preserve component state
     ListModel {
@@ -166,9 +167,22 @@ ApplicationWindow {
         }
     }
 
+    // Settings dialog
+    SettingsDialog {
+        id: settingsDialog
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+
+        // Custom title bar
+        CustomTitleBar {
+            id: customTitleBar
+            Layout.fillWidth: true
+            targetWindow: win
+            onSettingsClicked: settingsDialog.open()
+        }
 
         // Global search bar (nivel superior a los tabs)
         Rectangle {
