@@ -6,7 +6,7 @@
 #define MyAppName "Xungungo"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Xungungo Team"
-#define MyAppURL "https://github.com/KernelPanicInc/Xungungo2"
+#define MyAppURL "https://github.com/XungungoMarkets/Xungungo2"
 #define MyAppExeName "xungungo.bat"
 
 [Setup]
@@ -23,8 +23,8 @@ DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 ; Archivo de licencia (descomentar si existe)
 ; LicenseFile=..\LICENSE
-; Icono del instalador y la app
-SetupIconFile=xungungo.ico
+; Icono del instalador (opcional - descomentar si tienes un .ico valido)
+; SetupIconFile=xungungo.ico
 ; Configuracion de salida
 OutputDir=..\dist
 OutputBaseFilename=xungungo-setup-{#MyAppVersion}
@@ -37,7 +37,6 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 ; UI
-UninstallDisplayIcon={app}\xungungo.ico
 UninstallDisplayName={#MyAppName}
 
 [Languages]
@@ -60,13 +59,10 @@ Source: "..\xungungo\*"; DestDir: "{app}\app\xungungo"; Flags: ignoreversion rec
 Source: "xungungo.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "setup-env.bat"; DestDir: "{app}"; Flags: ignoreversion
 
-; Icono
-Source: "xungungo.ico"; DestDir: "{app}"; Flags: ignoreversion
-
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\xungungo.ico"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\xungungo.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: shellexec postinstall skipifsilent
