@@ -40,7 +40,7 @@ jobs:
         Expand-Archive -Path python-embed.zip -DestinationPath installer/python
         Remove-Item python-embed.zip
 
-    - name: Configure Python embeddable and install dependencies
+    - name: Configure Python embeddable
       shell: powershell
       run: |
         $pythonDir = "installer/python"
@@ -55,21 +55,22 @@ jobs:
         $sitePackages = Join-Path $pythonDir "Lib\site-packages"
         New-Item -ItemType Directory -Path $sitePackages -Force | Out-Null
         
-        # Download get-pip.py
-        Write-Host "Downloading get-pip.py..."
-        Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile (Join-Path $pythonDir "get-pip.py")
+        Write-Host "Python embeddable configured."
+
+    - name: Install dependencies with system Python
+      shell: powershell
+      run: |
+        # Use system Python to install dependencies to a target directory
+        # This avoids pip issues with embeddable Python
+        Write-Host "Installing dependencies with system Python..."
+        $targetDir = "installer/python/Lib/site-packages"
         
-        # Install pip into the embeddable Python
-        Write-Host "Installing pip..."
-        $pythonExe = Join-Path $pythonDir "python.exe"
-        & $pythonExe (Join-Path $pythonDir "get-pip.py") --no-warn-script-location
-        Remove-Item (Join-Path $pythonDir "get-pip.py")
+        # Install all dependencies to the target directory
+        pip install --target=$targetDir -r requirements.txt
         
-        # Pre-install all dependencies during build (no venv needed!)
-        Write-Host "Installing application dependencies..."
-        Write-Host "This may take several minutes..."
-        & $pythonExe -m pip install --no-warn-script-location -r requirements.txt
         Write-Host "Dependencies installed successfully!"
+        Write-Host "Contents of site-packages:"
+        Get-ChildItem $targetDir | Select-Object -First 20
 
     - name: Create placeholder icon
       shell: powershell
