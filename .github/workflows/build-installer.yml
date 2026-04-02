@@ -46,34 +46,61 @@ jobs:
         $pythonDir = "installer/python"
         $pythonVersion = "3.11"
         
-        # Modify python311._pth to enable site-packages and imports
-        # IMPORTANT: This file MUST have proper line endings for Python to parse it
+        # Path to the _pth file
         $pthFile = Join-Path $pythonDir "python$pythonVersion._pth"
         
-        # Build content with explicit CRLF line endings
-        $pthContent = "python$pythonVersion.zip`r`n"
-        $pthContent += ".`r`n"
-        $pthContent += "Lib`r`n"
-        $pthContent += "Lib\site-packages`r`n"
-        $pthContent += "import site`r`n"
+        # First, show original content for debugging
+        Write-Host "=== ORIGINAL _pth file content ==="
+        if (Test-Path $pthFile) {
+          Get-Content $pthFile | ForEach-Object { Write-Host "LINE: $_" }
+          Write-Host "=== END ORIGINAL ==="
+        } else {
+          Write-Host "File does not exist!"
+        }
         
-        # Write with UTF-8 NO BOM (Python requires this)
+        # Remove the original file first (it may have special attributes)
+        if (Test-Path $pthFile) {
+          Remove-Item -Path $pthFile -Force
+          Write-Host "Removed original _pth file"
+        }
+        
+        # Create new _pth content with proper line endings
+        # Each line must end with CRLF for Windows Python
+        $pthLines = @(
+          "python$pythonVersion.zip",
+          ".",
+          "Lib",
+          "Lib\site-packages",
+          "import site"
+        )
+        
+        # Write using StreamWriter to ensure correct encoding
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-        [System.IO.File]::WriteAllText($pthFile, $pthContent, $utf8NoBom)
+        $writer = [System.IO.StreamWriter]::new($pthFile, $false, $utf8NoBom)
+        foreach ($line in $pthLines) {
+          $writer.WriteLine($line)
+        }
+        $writer.Close()
         
-        # Verify the file content
-        Write-Host "Content of $pthFile :"
-        Get-Content $pthFile
+        # Verify the new content
         Write-Host ""
-        Write-Host "File bytes (first 50):"
+        Write-Host "=== NEW _pth file content ==="
+        Get-Content $pthFile | ForEach-Object { Write-Host "LINE: $_" }
+        Write-Host "=== END NEW ==="
+        
+        Write-Host ""
+        Write-Host "=== File bytes (hex dump) ==="
         $bytes = [System.IO.File]::ReadAllBytes($pthFile)
-        Write-Host ([System.BitConverter]::ToString($bytes[0..49]))
+        $hexString = [System.BitConverter]::ToString($bytes)
+        Write-Host $hexString
+        Write-Host "=== END bytes ==="
         
         # Create Lib\site-packages directory
         $sitePackages = Join-Path $pythonDir "Lib\site-packages"
         New-Item -ItemType Directory -Path $sitePackages -Force | Out-Null
         
-        Write-Host "Python embeddable configured."
+        Write-Host ""
+        Write-Host "Python embeddable configured successfully!"
 
     - name: Install dependencies with system Python
       shell: powershell
