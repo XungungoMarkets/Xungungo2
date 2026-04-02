@@ -47,24 +47,27 @@ jobs:
         $pythonVersion = "3.11"
         
         # Modify python311._pth to enable site-packages and imports
-        # IMPORTANT: Each line must be separate for Python to parse correctly
+        # IMPORTANT: This file MUST have proper line endings for Python to parse it
         $pthFile = Join-Path $pythonDir "python$pythonVersion._pth"
-        $pthLines = @(
-          "python$pythonVersion.zip",
-          ".",
-          "Lib",
-          "Lib\site-packages",
-          "",
-          "# Uncomment to run site.main() automatically",
-          "import site"
-        )
-        # Use [System.IO.File]::WriteAllText for reliable encoding
-        $pthContent = $pthLines -join "`r`n"
-        [System.IO.File]::WriteAllText($pthFile, $pthContent, [System.Text.Encoding]::ASCII)
+        
+        # Build content with explicit CRLF line endings
+        $pthContent = "python$pythonVersion.zip`r`n"
+        $pthContent += ".`r`n"
+        $pthContent += "Lib`r`n"
+        $pthContent += "Lib\site-packages`r`n"
+        $pthContent += "import site`r`n"
+        
+        # Write with UTF-8 NO BOM (Python requires this)
+        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllText($pthFile, $pthContent, $utf8NoBom)
         
         # Verify the file content
         Write-Host "Content of $pthFile :"
         Get-Content $pthFile
+        Write-Host ""
+        Write-Host "File bytes (first 50):"
+        $bytes = [System.IO.File]::ReadAllBytes($pthFile)
+        Write-Host ([System.BitConverter]::ToString($bytes[0..49]))
         
         # Create Lib\site-packages directory
         $sitePackages = Join-Path $pythonDir "Lib\site-packages"
