@@ -40,7 +40,7 @@ jobs:
         Expand-Archive -Path python-embed.zip -DestinationPath installer/python
         Remove-Item python-embed.zip
 
-    - name: Configure Python embeddable for venv
+    - name: Configure Python embeddable and install dependencies
       shell: powershell
       run: |
         $pythonDir = "installer/python"
@@ -64,6 +64,12 @@ jobs:
         $pythonExe = Join-Path $pythonDir "python.exe"
         & $pythonExe (Join-Path $pythonDir "get-pip.py") --no-warn-script-location
         Remove-Item (Join-Path $pythonDir "get-pip.py")
+        
+        # Pre-install all dependencies during build (no venv needed!)
+        Write-Host "Installing application dependencies..."
+        Write-Host "This may take several minutes..."
+        & $pythonExe -m pip install --no-warn-script-location -r requirements.txt
+        Write-Host "Dependencies installed successfully!"
 
     - name: Create placeholder icon
       shell: powershell
@@ -161,13 +167,14 @@ jobs:
           ### Instalación
           1. Descarga `xungungo-setup-${{ steps.get_version.outputs.VERSION }}.exe`
           2. Ejecuta el instalador
-          3. En la primera ejecución, se configurará el entorno automáticamente
+          3. ¡Listo! Ejecuta Xungungo desde el menú Inicio o el acceso directo
           
           ### Requisitos
           - Windows 10/11 (64-bit)
           
           ### Notas
-          Este instalador incluye Python portable, por lo que no necesitas tener Python instalado.
+          Este instalador incluye Python portable y todas las dependencias pre-instaladas.
+          No requiere conexión a internet ni configuración adicional.
         files: ./dist/xungungo-setup-*.exe
         draft: false
         prerelease: ${{ contains(steps.get_version.outputs.VERSION, '-') }}

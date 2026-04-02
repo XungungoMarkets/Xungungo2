@@ -1,13 +1,13 @@
 ; Xungungo Installer Script for Inno Setup
 ; =============================================
 ; Este script crea un instalador Windows que incluye
-; Python portable y todas las dependencias.
+; Python portable y todas las dependencias pre-instaladas.
 
 #define MyAppName "Xungungo"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Xungungo Team"
 #define MyAppURL "https://github.com/XungungoMarkets/Xungungo2"
-#define MyAppExeName "xungungo.bat"
+#define MyAppExeName "python\python.exe"
 
 [Setup]
 AppId={{8F3D9A7E-1B2C-4E5F-A8D3-7C9E2F1B5A6D}
@@ -47,7 +47,7 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; Python portable (descargado por GitHub Actions)
+; Python portable con dependencias pre-instaladas (descargado y configurado por GitHub Actions)
 Source: "python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Aplicacion principal
@@ -55,18 +55,13 @@ Source: "..\run.py"; DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\requirements.txt"; DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\xungungo\*"; DestDir: "{app}\app\xungungo"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Scripts de entrada
-Source: "xungungo.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "setup-env.bat"; DestDir: "{app}"; Flags: ignoreversion
-
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\python\python.exe"; Parameters: """{app}\app\run.py"""; WorkingDir: "{app}\app"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\python\python.exe"; Parameters: """{app}\app\run.py"""; WorkingDir: "{app}\app"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: shellexec postinstall skipifsilent
+Filename: "{app}\python\python.exe"; Parameters: """{app}\app\run.py"""; WorkingDir: "{app}\app"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: postinstall skipifsilent
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}\venv"
 Type: filesandordirs; Name: "{app}"
