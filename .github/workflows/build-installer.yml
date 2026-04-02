@@ -47,9 +47,24 @@ jobs:
         $pythonVersion = "3.11"
         
         # Modify python311._pth to enable site-packages and imports
+        # IMPORTANT: Each line must be separate for Python to parse correctly
         $pthFile = Join-Path $pythonDir "python$pythonVersion._pth"
-        $pthContent = "python$pythonVersion.zip`n.`nLib`nLib\site-packages`nimport site"
-        Set-Content -Path $pthFile -Value $pthContent
+        $pthLines = @(
+          "python$pythonVersion.zip",
+          ".",
+          "Lib",
+          "Lib\site-packages",
+          "",
+          "# Uncomment to run site.main() automatically",
+          "import site"
+        )
+        # Use [System.IO.File]::WriteAllText for reliable encoding
+        $pthContent = $pthLines -join "`r`n"
+        [System.IO.File]::WriteAllText($pthFile, $pthContent, [System.Text.Encoding]::ASCII)
+        
+        # Verify the file content
+        Write-Host "Content of $pthFile :"
+        Get-Content $pthFile
         
         # Create Lib\site-packages directory
         $sitePackages = Join-Path $pythonDir "Lib\site-packages"
