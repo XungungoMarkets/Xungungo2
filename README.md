@@ -21,17 +21,39 @@ A modern desktop stock analysis application built with **PySide6**, **QML**, and
 
 ## Installation
 
+### Windows Installer (Recommended)
+
+Download the latest installer from [Releases](https://github.com/XungungoMarkets/Xungungo2/releases).
+
+1. Download `xungungo-setup-X.X.X.exe`
+2. Run the installer
+3. Launch Xungungo from the Start Menu or desktop shortcut
+
+**That's it!** The installer includes:
+- Python 3.11 portable
+- All dependencies pre-installed (PySide6, pandas, numpy, yfinance)
+- No internet connection required after installation
+- No configuration needed
+
 ### Requirements
 
-- Python 3.10+ (recommended 3.11)
-- Windows OS
+- Windows 10/11 (64-bit)
+- ~200MB disk space
 
-### Setup
+---
+
+### Development Setup
+
+For developers who want to run from source:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/xungungo.git
-cd xungungo
+git clone https://github.com/XungungoMarkets/Xungungo2.git
+cd Xungungo2
+
+# Create virtual environment
+python -m venv venv
+venv\Scripts\activate
 
 # Install dependencies
 pip install -U pip
@@ -40,6 +62,10 @@ pip install -e .
 
 ## Usage
 
+### Installed Version
+Simply launch from Start Menu or desktop shortcut.
+
+### Development
 ```bash
 python run.py
 ```
