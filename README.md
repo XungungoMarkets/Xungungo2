@@ -1,230 +1,78 @@
 # Xungungo
 
-A modern desktop stock analysis application built with **PySide6**, **QML**, and **LightweightCharts**.
+**Xungungo** is a desktop application for real-time stock market analysis. View candlestick charts, technical indicators, and fundamental data for any ticker with a clean and fast interface.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![PySide6](https://img.shields.io/badge/PySide6-6.5+-green.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
-
-## Features
-
-- **Interactive Charts** - Candlestick charts powered by TradingView's LightweightCharts
-- **Real-Time Data** - Live price updates from multiple sources (NASDAQ, Yahoo Finance)
-- **Stock Analysis** - Fundamental data including valuation metrics, holders, and analyst recommendations
-- **Technical Indicators** - Extensible plugin system for custom indicators
-- **Multi-Tab Interface** - Work with multiple tickers simultaneously
-- **Symbol Search** - Autocomplete search powered by Yahoo Finance
-
-## Screenshots
-
-*Coming soon*
-
-## Installation
-
-### Windows Installer (Recommended)
-
-Download the latest installer from [Releases](https://github.com/XungungoMarkets/Xungungo2/releases).
-
-1. Download `xungungo-setup-X.X.X.exe`
-2. Run the installer
-3. Launch Xungungo from the Start Menu or desktop shortcut
-
-**That's it!** The installer includes:
-- Python 3.11 portable
-- All dependencies pre-installed (PySide6, pandas, numpy, yfinance)
-- No internet connection required after installation
-- No configuration needed
-
-### Requirements
-
-- Windows 10/11 (64-bit)
-- ~200MB disk space
+![Xungungo Chart](screenshots/screenshot_2.png)
 
 ---
 
-### Development Setup
+## Download & Install
 
-For developers who want to run from source:
+> **Requirements:** Windows 10/11 (64-bit). No Python or additional dependencies needed.
 
-```bash
-# Clone the repository
-git clone https://github.com/XungungoMarkets/Xungungo2.git
-cd Xungungo2
+1. Download the installer from [Releases](https://github.com/XungungoMarkets/Xungungo2/releases)
+2. Run `xungungo-setup-X.X.X.exe`
+3. Follow the installer steps
+4. Open Xungungo from the Start Menu or desktop shortcut
 
-# Create virtual environment
-python -m venv venv
-venv\Scripts\activate
+---
 
-# Install dependencies
-pip install -U pip
-pip install -e .
-```
+## What you can do with Xungungo
 
-## Usage
+### Interactive Charts
+View candlestick charts with zoom, panning, and multiple time intervals (1d, 1w, etc.). Data is fetched automatically from Yahoo Finance.
 
-### Installed Version
-Simply launch from Start Menu or desktop shortcut.
+![Technical Indicators](screenshots/screenshot_1.png)
 
-### Development
-```bash
-python run.py
-```
+### Technical Indicators
+Enable and disable indicators with a single click from the side panel:
 
-### Debug Mode
-
-```bash
-set XUNGUNGO_DEBUG=1
-python run.py
-```
-
-## Architecture
-
-```
-xungungo/
-├── app.py                    # Application entry point
-├── bridge/                   # QML-JavaScript communication
-│   └── chart_bridge.py       # QWebChannel bridge for charts
-├── controllers/              # Business logic
-│   ├── ticker_controller.py  # Chart data management
-│   ├── analysis_controller.py# Fundamental data fetching
-│   ├── realtime_controller.py# Real-time price polling
-│   ├── search_controller.py  # Symbol search
-│   └── tab_manager.py        # Multi-tab management
-├── core/                     # Core utilities
-│   └── logger.py             # Logging configuration
-├── data/                     # Data sources
-│   ├── yfinance_source.py    # Yahoo Finance historical data
-│   ├── yahoo_search.py       # Symbol search client
-│   └── realtime/             # Real-time data providers
-│       ├── base.py           # Abstract base class
-│       ├── nasdaq.py         # NASDAQ data source
-│       └── yahoo_realtime.py # Yahoo Finance fallback
-├── indicators/               # Technical indicator plugins
-│   ├── base.py               # Plugin base class
-│   ├── manager.py            # Plugin autodiscovery
-│   ├── bollinger.py          # Bollinger Bands
-│   ├── fibonacci.py          # Fibonacci Retracements
-│   ├── kalman.py             # Kalman Filter
-│   └── td_sequential.py      # TD Sequential
-└── ui/
-    ├── qml/                  # QML user interface
-    │   ├── Main.qml          # Main window
-    │   ├── components/       # Reusable components
-    │   └── pages/            # Tab pages
-    └── web/                  # Web-based chart
-        ├── index.html        # Chart container
-        └── chart.js          # LightweightCharts integration
-```
-
-## Technical Indicators
-
-Xungungo includes several built-in indicators:
-
-| Indicator | Description |
+| Indicator | What it does |
 |-----------|-------------|
-| **Kalman Filter** | Dual fast/slow Kalman filters with fill between |
-| **Bollinger Bands** | Standard deviation bands around moving average |
-| **Fibonacci** | Automatic swing detection with retracement levels |
-| **TD Sequential** | Tom DeMark's Sequential indicator |
+| **Bollinger Bands** | Shows volatility bands around the price |
+| **Fibonacci** | Automatically detects swings and draws retracement levels |
+| **Kalman Filter** | Smooths price noise with two curves (fast and slow) |
+| **TD Sequential** | Tom DeMark's indicator for identifying exhaustion and reversal points |
 
-### Creating Custom Indicators
+### Multiple Tabs
+Work with several tickers at the same time. Each tab is independent and saves its state when you close the app.
 
-The plugin system uses autodiscovery. Simply add a `.py` file to `xungungo/indicators/`:
+### Real-Time Price
+The current price updates automatically from NASDAQ and Yahoo Finance.
 
-```python
-from .base import IndicatorPlugin
-import pandas as pd
+### Fundamental Analysis
+The **Analysis** tab shows company information: valuation metrics, shareholders, and analyst recommendations.
 
-class MyIndicatorPlugin(IndicatorPlugin):
-    id = "my_indicator"
-    name = "My Indicator"
-    description = "Custom indicator description"
+---
 
-    def default_config(self):
-        return {"period": 14}
+## How to search for a ticker
 
-    def apply(self, df: pd.DataFrame, config: dict) -> pd.DataFrame:
-        df = df.copy()
-        df["my_value"] = df["close"].rolling(config["period"]).mean()
-        return df
+Click the search bar at the top and type the symbol or company name. The search bar suggests results automatically.
 
-    def chart_series(self):
-        return [{"id": "my_value", "column": "my_value", "type": "line", "pane": "main"}]
-```
+---
 
-See [indicators/README.md](xungungo/indicators/README.md) for detailed documentation.
+## Available intervals and periods
 
-## Real-Time Data
+Use the controls at the top of the chart to change the candle interval (1d, 1w) and the historical period (1y, 5y, 10y, etc.).
 
-The application supports multiple real-time data sources with automatic fallback:
+---
 
-1. **NASDAQ** - Primary source for US stocks
-2. **Yahoo Finance** - Fallback source
+## FAQ
 
-Features:
-- Configurable polling interval (15s default)
-- Exponential backoff on errors
-- Rate limit detection and handling
-- Smart source caching per symbol
+**Do I need an internet connection?**
+Yes, an internet connection is required to fetch price data and company information.
 
-## Tabs
+**Is the data real-time?**
+The current price updates every 15 seconds. Candlestick history is downloaded when you open each ticker.
 
-| Tab | Description |
-|-----|-------------|
-| **Chart** | Interactive candlestick chart with indicators |
-| **Analysis** | Fundamental data, holders, recommendations |
-| **Options** | Options chain data *(coming soon)* |
+**What markets are available?**
+Any ticker available on Yahoo Finance: US stocks, ETFs, indices, and more.
 
-## Configuration
+**Where is my configuration saved?**
+In `C:\Users\YourUser\.xungungo\`. Your tabs and settings are restored automatically when you reopen the app.
 
-### LightweightCharts (Offline Mode)
-
-By default, LightweightCharts loads from CDN. For offline use:
-
-1. Download `lightweight-charts.standalone.production.js`
-2. Copy to `xungungo/ui/web/`
-3. Update `index.html` to reference the local file
-
-## Development
-
-### Running Tests
-
-```bash
-pytest
-```
-
-### Project Structure
-
-The application follows a clean separation of concerns:
-
-- **Controllers** handle business logic and data fetching
-- **QML** manages the user interface
-- **Bridge** enables communication between QML and JavaScript charts
-- **Plugins** provide extensibility for technical indicators
-
-## Dependencies
-
-| Package | Purpose |
-|---------|---------|
-| PySide6 | Qt bindings for Python |
-| pandas | Data manipulation |
-| numpy | Numerical operations |
-| yfinance | Yahoo Finance API |
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- [TradingView LightweightCharts](https://github.com/tradingview/lightweight-charts) for the charting library
-- [yfinance](https://github.com/ranaroussi/yfinance) for market data
-- [PySide6](https://doc.qt.io/qtforpython/) for the Qt framework
+MIT — free for personal and commercial use.
