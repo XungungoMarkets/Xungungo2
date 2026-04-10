@@ -6,7 +6,8 @@ from .base import IndicatorPlugin
 
 # Import from external tdsequential library
 # Install with: pip install git+https://github.com/Fiambre/TDSequential.git
-from tdsequential import calculate_td_sequential
+# Import from core directly to avoid pulling in the optional matplotlib plot module
+from tdsequential.core import calculate_td_sequential
 
 
 def calculate_tdst_levels(

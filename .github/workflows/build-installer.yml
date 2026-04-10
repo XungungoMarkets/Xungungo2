@@ -45,9 +45,10 @@ jobs:
       run: |
         $pythonDir = "installer/python"
         $pythonVersion = "3.11"
-        
-        # Path to the _pth file
-        $pthFile = Join-Path $pythonDir "python$pythonVersion._pth"
+        $pythonVersionNoDot = $pythonVersion -replace '\.', ''
+
+        # The embeddable zip uses version without dot in filenames (e.g. python311._pth, not python3.11._pth)
+        $pthFile = Join-Path $pythonDir "python$pythonVersionNoDot._pth"
         
         # First, show original content for debugging
         Write-Host "=== ORIGINAL _pth file content ==="
@@ -67,9 +68,8 @@ jobs:
         # Create new _pth content with proper line endings
         # Each line must end with CRLF for Windows Python
         # Note: the embeddable zip filename uses version without dot (e.g. python311.zip, not python3.11.zip)
-        $pthVersionNoDot = $pythonVersion -replace '\.', ''
         $pthLines = @(
-          "python$pthVersionNoDot.zip",
+          "python$pythonVersionNoDot.zip",
           ".",
           "Lib",
           "Lib\site-packages",
@@ -100,7 +100,11 @@ jobs:
         # Create Lib\site-packages directory
         $sitePackages = Join-Path $pythonDir "Lib\site-packages"
         New-Item -ItemType Directory -Path $sitePackages -Force | Out-Null
-        
+
+        # Make _pth read-only so pip cannot overwrite it during dependency installation
+        Set-ItemProperty -Path $pthFile -Name IsReadOnly -Value $true
+        Write-Host "_pth file set as read-only"
+
         Write-Host ""
         Write-Host "Python embeddable configured successfully!"
 
