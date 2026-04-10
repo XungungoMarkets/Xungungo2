@@ -56,12 +56,12 @@ Source: "..\requirements.txt"; DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\xungungo\*"; DestDir: "{app}\app\xungungo"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\python\python.exe"; Parameters: """{app}\app\run.py"""; WorkingDir: "{app}\app"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app\run.py"""; WorkingDir: "{app}\app"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\python\python.exe"; Parameters: """{app}\app\run.py"""; WorkingDir: "{app}\app"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app\run.py"""; WorkingDir: "{app}\app"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\python\python.exe"; Parameters: """{app}\app\run.py"""; WorkingDir: "{app}\app"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: postinstall skipifsilent
+Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app\run.py"""; WorkingDir: "{app}\app"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

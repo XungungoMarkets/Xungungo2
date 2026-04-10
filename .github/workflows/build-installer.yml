@@ -66,8 +66,10 @@ jobs:
         
         # Create new _pth content with proper line endings
         # Each line must end with CRLF for Windows Python
+        # Note: the embeddable zip filename uses version without dot (e.g. python311.zip, not python3.11.zip)
+        $pthVersionNoDot = $pythonVersion -replace '\.', ''
         $pthLines = @(
-          "python$pythonVersion.zip",
+          "python$pthVersionNoDot.zip",
           ".",
           "Lib",
           "Lib\site-packages",
@@ -102,17 +104,20 @@ jobs:
         Write-Host ""
         Write-Host "Python embeddable configured successfully!"
 
-    - name: Install dependencies with system Python
+    - name: Set up Python 3.11 for dependency installation
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies with Python 3.11
       shell: powershell
       run: |
-        # Use system Python to install dependencies to a target directory
-        # This avoids pip issues with embeddable Python
-        Write-Host "Installing dependencies with system Python..."
+        # Must use Python 3.11 to install cp311-compatible binaries (matches embeddable Python version)
+        Write-Host "Installing dependencies with Python 3.11..."
         $targetDir = "installer/python/Lib/site-packages"
-        
-        # Install all dependencies to the target directory
-        pip install --target=$targetDir -r requirements.txt
-        
+
+        python -m pip install --target=$targetDir -r requirements.txt
+
         Write-Host "Dependencies installed successfully!"
         Write-Host "Contents of site-packages:"
         Get-ChildItem $targetDir | Select-Object -First 20
